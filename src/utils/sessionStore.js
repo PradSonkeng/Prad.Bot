@@ -3,6 +3,8 @@
 const Session = require('../database/models/Session');
 const logger  = require('./logger');
 
+const SESSION_ID = process.env.SESSION_ID || 'prad-bot-session';
+
 /**
  * Sauvegarde les credentials Baileys dans MongoDB.
  */
