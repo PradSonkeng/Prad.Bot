@@ -318,17 +318,10 @@ function startWebServer() {
 async function startBot() {
   await connectDB();
 
-  // Charger session depuis MongoDB
-  const savedCreds = await loadSession();
-
-  // Créer un état auth compatible Baileys
-  let authState = {
-    creds: savedCreds || initAuthCreds(),
-    keys:  {} // géré en mémoire
-  };
+  const { state: authState, saveCreds } = await useMultiFileAuthState(paths.auth);
   const { version }                     = await fetchLatestBaileysVersion();
 
-  logger.info(`🚀 Démarrage ${bot.name} v${bot.version} — Baileys ${version.join('.')}`);
+  logger.info(`🚀 Démarrage ${bot.name} v${bot.version}`);
 
   const sock = makeWASocket({
     version,
@@ -342,45 +335,31 @@ async function startBot() {
     generateHighQualityLinkPreview: false,
   });
 
- // Sauvegarder dans MongoDB à chaque mise à jour
-  sock.ev.on('creds.update', async (update) => {
-    Object.assign(authState.creds, update);
-    await saveSession(authState.creds);
-  });
+  sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
-
-    // ── Nouveau QR généré → convertir en image base64 ──────────────────
     if (qr) {
       try {
         state.qr        = await qrcode.toDataURL(qr, { width: 300, margin: 2 });
         state.connected = false;
-        logger.info('📱 QR code généré — ouvrez http://localhost:3000');
       } catch (err) {
-        logger.error('Erreur génération QR :', err.message);
+        logger.error('Erreur QR : ' + err.message);
       }
     }
-
-    // ── Bot connecté ───────────────────────────────────────────────────
     if (connection === 'open') {
       state.connected = true;
       state.qr        = null;
-      logger.info(`✅ ${bot.name} connecté et opérationnel !`);
+      logger.info(`✅ ${bot.name} connecté !`);
     }
-
-    // ── Déconnexion ────────────────────────────────────────────────────
     if (connection === 'close') {
       state.connected = false;
       state.qr        = null;
-
-      const code            = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = code !== DisconnectReason.loggedOut;
-
-      if (code === DisconnectReason.loggedOut) {
-        logger.warn('❌ Session expirée. Supprimez auth_info_baileys/ et relancez.');
-      } else {
-        logger.warn(`⚠️ Connexion fermée (code ${code}). Reconnexion dans 5s...`);
+      const code = lastDisconnect?.error?.output?.statusCode;
+      if (code !== DisconnectReason.loggedOut) {
+        logger.warn(`⚠️ Reconnexion dans 5s... (code ${code})`);
         setTimeout(startBot, 5000);
+      } else {
+        logger.warn('❌ Session expirée.');
       }
     }
   });
@@ -395,9 +374,43 @@ async function startBot() {
   });
 }
 
-// ─── Démarrage simultané du serveur web et du bot ────────────────────────────
-startWebServer();
-startBot().catch(err => {
+// ── Serveur Express démarré EN PREMIER ──────────────────
+function startWebServer() {
+  const app  = express();
+  const PORT = process.env.PORT || 3000;
+
+  // ✅ Health check — Koyeb vérifie cette route
+  app.get('/health', (req, res) => {
+    res.status(200).json({
+      status:    'ok',
+      bot:       state.connected ? 'online' : 'offline',
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.get('/status', (req, res) => {
+    res.json({
+      connected: state.connected,
+      qr:        state.qr,
+      botName:   state.botName,
+      version:   state.version,
+    });
+  });
+
+  app.get('/', (req, res) => {
+    // ... votre page HTML existante
+    res.send(`<!-- votre HTML existant -->`);
+  });
+
+  // ✅ Express démarre immédiatement — pas d'attente MongoDB
+  app.listen(PORT, '0.0.0.0', () => {
+    logger.info(`🌐 Serveur web démarré sur port ${PORT}`);
+  });
+}
+
+// ── ORDRE CRITIQUE : Web d'abord, bot ensuite ────────────
+startWebServer();           // ← démarre immédiatement
+startBot().catch(err => {   // ← démarre en arrière-plan
   logger.error('Erreur fatale : ' + err.message);
   process.exit(1);
 });
