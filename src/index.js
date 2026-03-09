@@ -369,20 +369,27 @@ async function startBot() {
     }
 
     // ── Déconnexion ────────────────────────────────────────────────────
-    if (connection === 'close') {
-      state.connected = false;
-      state.qr        = null;
+    // ✅ CORRECTION
+if (connection === 'close') {
+  const code      = lastDisconnect?.error?.output?.statusCode;
+  const reason    = lastDisconnect?.error?.message || '';
+  const is515     = reason.includes('515') || reason.includes('Stream Errored');
+  const loggedOut = code === DisconnectReason.loggedOut;
 
-      const code            = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = code !== DisconnectReason.loggedOut;
-
-      if (code === DisconnectReason.loggedOut) {
-        logger.warn('❌ Session expirée. Supprimez auth_info_baileys/ et relancez.');
-      } else {
-        logger.warn(`⚠️ Connexion fermée (code ${code}). Reconnexion dans 5s...`);
-        setTimeout(startBot, 5000);
-      }
-    }
+  if (loggedOut) {
+    logger.warn('❌ Session expirée — nouveau QR requis.');
+    // Supprimer la session corrompue
+    try { await deleteSession(); } catch (_) {}
+    setTimeout(startBot, 3000);
+  } else if (is515) {
+    // 515 = restart normal après scan QR — recharger immédiatement
+    logger.info('🔄 Restart WhatsApp (515) — reconnexion immédiate...');
+    setTimeout(startBot, 1000); // ← délai court pour le 515
+  } else {
+    logger.warn(`⚠️ Connexion fermée (code ${code}). Reconnexion dans 5s...`);
+    setTimeout(startBot, 5000);
+  }
+}
   });
 
   registerEventHandlers(sock);
