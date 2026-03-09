@@ -18,16 +18,47 @@ async function saveSession(creds) {
   }
 }
 
-/**
- * Charge les credentials depuis MongoDB.
- * Retourne null si aucune session sauvegardée.
- */
+// Convertit les Binary MongoDB en Buffer Node.js
+function convertBinaryToBuffer(obj) {
+  if (obj === null || obj === undefined) return obj;
+
+  // MongoDB Binary → Buffer
+  if (obj._bsontype === 'Binary' || (obj.buffer && obj.sub_type !== undefined)) {
+    return Buffer.from(obj.buffer || obj.value());
+  }
+
+  if (Buffer.isBuffer(obj)) return obj;
+
+  if (typeof obj === 'string') return obj;
+
+  if (Array.isArray(obj)) {
+    return obj.map(convertBinaryToBuffer);
+  }
+
+  if (typeof obj === 'object') {
+    const result = {};
+    for (const key of Object.keys(obj)) {
+      result[key] = convertBinaryToBuffer(obj[key]);
+    }
+    return result;
+  }
+
+  return obj;
+}
+
 async function loadSession() {
   try {
-    const doc = await Session.findOne({ sessionId: 'main' });
-    return doc ? doc.data : null;
+    const doc = await Session.findOne({ sessionId: SESSION_ID });
+    if (!doc) return null;
+
+    // ✅ Conversion critique : Binary MongoDB → Buffer Node.js
+    const raw  = doc.toObject();
+    const data = convertBinaryToBuffer(raw.data);
+
+    logger.info('✅ Session chargée depuis MongoDB');
+    return data;
   } catch (err) {
-    logger.error('loadSession error: ' + err.message);
+    logger.error('Erreur chargement session : ' + err.message);
     return null;
   }
 }
