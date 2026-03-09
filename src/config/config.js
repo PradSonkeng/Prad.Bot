@@ -8,7 +8,7 @@ module.exports = {
     owner:   process.env.OWNER_NUMBER + '672039320',
   },
   db: {
-    uri: process.env.MONGO_URI || 'mongodb://botuser:NouNou2003@ac-fkb7gte-shard-00-00.ollcdvg.mongodb.net:27017,ac-fkb7gte-shard-00-01.ollcdvg.mongodb.net:27017,ac-fkb7gte-shard-00-02.ollcdvg.mongodb.net:27017/?ssl=true&replicaSet=atlas-10icqh-shard-0&authSource=admin&appName=whatsapp-bot',
+    uri: process.env.MONGO_URI || 'mongodb+srv://user:pass@cluster.mongodb.net/whatsapp_bot',
   },
   rateLimit: {
     max:    parseInt(process.env.RATE_LIMIT_MAX)    || 10,
