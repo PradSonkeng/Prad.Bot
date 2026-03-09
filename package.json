@@ -1,0 +1,36 @@
+{
+  "name": "prad.bot",
+  "version": "2.0.0",
+  "description": "Bot WhatsApp modulaire haute performance",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop prad.bot",
+    "pm2:logs": "pm2 logs prad.bot"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "axios": "^1.7.2",
+    "dotenv": "^16.6.1",
+    "express": "^5.2.1",
+    "fluent-ffmpeg": "^2.1.2",
+    "jimp": "^1.1.4",
+    "mongodb": "^7.1.0",
+    "mongoose": "^8.23.0",
+    "node-cache": "^5.1.2",
+    "p-queue": "^8.0.1",
+    "pino": "^9.2.0",
+    "pino-pretty": "^11.2.1",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "sharp": "^0.33.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

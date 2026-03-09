@@ -1,0 +1,16 @@
+# Données sensibles
+.env
+auth_info_baileys/
+logs/
+temp/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PM2
+.pm2/
