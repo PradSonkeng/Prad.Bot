@@ -19,7 +19,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-PradSonkeng-181717?style=for-the-badge&logo=github)](https://github.com/PradSonkeng)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-PradSonkeng-0077B5?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/prad-sonkeng-002161382?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app)
-[![YouTube](https://img.shields.io/badge/YouTube-PradSONKENG-FF0000?style=for-the-badge&logo=youtube)](https://www.youtube.com/@PradSONKENG)
+[![YouTube](https://img.shields.io/badge/YouTube-PradSONKENG-FF0000?style=for-the-badge&logo=youtube)](https://www.youtube.com/@PradSONKENG?s=21)
 [![Twitter/X](https://img.shields.io/badge/Twitter%2FX-PradPrime-000000?style=for-the-badge&logo=x)](https://x.com/PradPrime)
 [![WhatsApp](https://img.shields.io/badge/WhatsApp-Tester%20le%20bot-25D366?style=for-the-badge&logo=whatsapp)](https://wa.me/672039320?text=||menu)
 
@@ -332,7 +332,7 @@ module.exports = {
 [![GitHub](https://img.shields.io/badge/GitHub-Voir%20mes%20projets-181717?style=for-the-badge&logo=github)](https://github.com/PradSonkeng)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Me%20contacter-0077B5?style=for-the-badge&logo=linkedin)](https://linkedin.com/in/https://www.linkedin.com/in/prad-sonkeng-002161382?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app)
 [![YouTube](https://img.shields.io/badge/YouTube-Ma%20chaîne-FF0000?style=for-the-badge&logo=youtube)](https://www.youtube.com/@PradSONKENG)
-[![Twitter/X](https://img.shields.io/badge/Twitter%2FX-Me%20suivre-000000?style=for-the-badge&logo=x)](https://x.com/PradPrime)
+[![Twitter/X](https://img.shields.io/badge/Twitter%2FX-Me%20suivre-000000?style=for-the-badge&logo=x)](https://x.com/PradPrime?s=21)
 
 </div>
 
