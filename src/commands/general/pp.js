@@ -1,4 +1,5 @@
 const { sendImage, sendText } = require('../../utils/messageUtils');
+const sharp = require('sharp');
 
 module.exports = {
   name: 'pp',
@@ -21,9 +22,15 @@ module.exports = {
     }
 
     try {
-      const url = await sock.profilePictureUrl(target, 'image'); // haute résolution
+      const url = await sock.profilePictureUrl(target, 'image');
       const res = await require('axios').get(url, { responseType: 'arraybuffer' });
-      await sendImage(sock, jid, Buffer.from(res.data), `📸 Photo de profil de @${target.split('@')[0]}`);
+
+      // ✅ Conversion en JPEG propre pour Sharp/Baileys
+      const imageBuffer = await sharp(Buffer.from(res.data))
+        .jpeg({ quality: 90 })
+        .toBuffer();
+
+      await sendImage(sock, jid, imageBuffer, `📸 Photo de profil de @${target.split('@')[0]}`);
     } catch {
       await sendText(sock, jid, '❌ Photo de profil introuvable ou privée.');
     }
