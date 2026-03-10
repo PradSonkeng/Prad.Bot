@@ -22,7 +22,7 @@ const fs                        = require('fs');
 
 
 // ─── File d'attente messages ──────────────────────────────────────────────────
-const queue = new PQueue({ concurrency: 15 });
+const queue = new PQueue({ concurrency: 100 });
 
 // ─── Dossiers nécessaires ─────────────────────────────────────────────────────
 [paths.temp, paths.logs, paths.auth].forEach(p => {
@@ -358,7 +358,7 @@ async function startBot() {
   sock.ev.on('messages.upsert', ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const msg of messages) {
-      queue.add(() => handleMessage(sock, msg));
+      handleMessage(sock, msg).catch(err => logger.error('Message error:', err.message));
     }
   });
 }

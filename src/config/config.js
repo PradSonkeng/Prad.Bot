@@ -11,8 +11,8 @@ module.exports = {
     uri: process.env.MONGO_URI || 'mongodb+srv://user:pass@cluster.mongodb.net/whatsapp_bot',
   },
   rateLimit: {
-    max:    parseInt(process.env.RATE_LIMIT_MAX)    || 10,
-    window: parseInt(process.env.RATE_LIMIT_WINDOW) || 60000,
+    max:    parseInt(process.env.RATE_LIMIT_MAX)    || 20,
+    window: parseInt(process.env.RATE_LIMIT_WINDOW) || 10000,
   },
   paths: {
     temp: './temp',
