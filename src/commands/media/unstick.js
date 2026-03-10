@@ -1,5 +1,6 @@
 const { downloadMedia, getMediaType } = require('../../utils/mediaUtils');
 const { sendText, sendImage }          = require('../../utils/messageUtils');
+const sharp                            = require('sharp');
 
 module.exports = {
   name: 'unstick',
@@ -18,7 +19,13 @@ module.exports = {
 
     await sendText(sock, jid, '⏳ Conversion en cours...');
     const buffer = await downloadMedia(sock, targetMsg);
-    // Les stickers WebP sont directement utilisables comme images
+    // ✅ Convertir WebP → PNG lisible par Sharp/Baileys
+    const imageBuffer = await sharp(buffer)
+      .png()
+      .toBuffer();
+
+    await sendImage(sock, jid, imageBuffer, '✅ Sticker converti en image.');
+    
     await sendImage(sock, jid, buffer, '✅ Sticker converti en image.');
   },
 };
