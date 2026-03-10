@@ -345,6 +345,8 @@ async function startBot() {
     syncFullHistory:                false,
     generateHighQualityLinkPreview: false,
     qrTimeout:                      60000,
+    retryRequestDelayMs:            0,     // ← ajout
+    maxMsgRetryCount:               0,     // ← stop les retries
   });
 
   // ── Sauvegarder creds + fichiers locaux à chaque update ──────────────────
