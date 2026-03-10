@@ -11,7 +11,7 @@
 Cliquez sur ce lien depuis votre téléphone :
 
 ```
-https://wa.me/672039320?text=||menu
+https://wa.me/237672039320?text=||menu
 ```
 
 Ou enregistrez le numéro du bot dans vos contacts et envoyez-lui un message.
@@ -286,7 +286,7 @@ Pour toute question ou problème :
 ```
 👨‍💻 Développeur  : PradSonkeng
 🐙 GitHub       : https://github.com/PradSonkeng
-💬 WhatsApp     : https://wa.me/658130830
+💬 WhatsApp     : https://wa.me/237658130830
 ```
 
 ---

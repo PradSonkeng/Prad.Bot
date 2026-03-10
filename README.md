@@ -9,7 +9,7 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-brightgreen?style=for-the-badge&logo=mongodb)](https://mongodb.com/atlas)
 [![Baileys](https://img.shields.io/badge/Baileys-6.7.9-blue?style=for-the-badge)](https://github.com/whiskeysockets/baileys)
 [![License](https://img.shields.io/badge/license-MIT-orange?style=for-the-badge)](LICENSE)
-[![Status](https://img.shields.io/badge/status-En%20ligne%20🟢-success?style=for-the-badge)](https://wa.me/672039320?text=||menu)
+[![Status](https://img.shields.io/badge/status-En%20ligne%20🟢-success?style=for-the-badge)](https://wa.me/237672039320?text=||menu)
 
 > **Bot WhatsApp modulaire haute performance** — Gestion de groupes, médias, stickers et bien plus.
 
@@ -21,7 +21,7 @@
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-PradSonkeng-0077B5?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/prad-sonkeng-002161382?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app)
 [![YouTube](https://img.shields.io/badge/YouTube-PradSONKENG-FF0000?style=for-the-badge&logo=youtube)](https://www.youtube.com/@PradSONKENG?s=21)
 [![Twitter/X](https://img.shields.io/badge/Twitter%2FX-PradPrime-000000?style=for-the-badge&logo=x)](https://x.com/PradPrime)
-[![WhatsApp](https://img.shields.io/badge/WhatsApp-Me%20Contacter-25D366?style=for-the-badge&logo=whatsapp)](https://wa.me/658130830)
+[![WhatsApp](https://img.shields.io/badge/WhatsApp-Me%20Contacter-25D366?style=for-the-badge&logo=whatsapp)](https://wa.me/237658130830)
 
 </div>
 
