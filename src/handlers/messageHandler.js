@@ -4,6 +4,9 @@ const commandRegistry                    = require('../commands/index');
 const { bot }                            = require('../config/config');
 const logger                             = require('../utils/logger');
 
+// ── Anti-doublon ──────────────────────────────────────────────────────────────
+const processed = new Set();
+
 /**
  * Point d'entrée principal pour chaque message reçu.
  * Gère le routage vers la bonne commande de façon non-bloquante.
@@ -12,6 +15,16 @@ async function handleMessage(sock, msg) {
   try {
     // Ignorer les messages du bot lui-même
     if (msg.key.fromMe) return;
+
+    // ── Ignorer messages non déchiffrés ──────────────────────────────────────
+    if (!msg.message) return;
+
+    // ── Anti-doublon ─────────────────────────────────────────────────────────
+    const msgId = msg.key.id;
+    if (processed.has(msgId)) return;
+    processed.add(msgId);
+    setTimeout(() => processed.delete(msgId), 60_000);
+
 
     const jid  = msg.key.remoteJid;
     const from = msg.key.participant || jid;  // expéditeur réel (groupe ou privé)
