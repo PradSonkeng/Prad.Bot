@@ -310,6 +310,17 @@ function startWebServer() {
     console.log('╚══════════════════════════════════════════════╝');
     console.log('\n');
   });
+
+  // ----------- auto-ping pour eviter la mise en veille koyep ---------
+  const APP_URL = process.env.APP_URL || '';
+  if (APP_URL) {
+    setInterval(async () => {
+      try {
+        await require('axios').get(`${APP_URL}/health`);
+        logger.info('🔔 Ping réussi pour maintenir le bot éveillé');
+      } catch (_) {}
+    }, 15 * 60 * 1000); // Toutes les 15 minutes
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
