@@ -196,7 +196,7 @@ function startWebServer() {
 </head>
 <body>
   <div class="card">
-    <img src="./utils/LogoBot.JPEG" alt="Logo Bot" class="logo">
+    <img src="utils/LogoBot.JPEG" alt="Logo Bot" class="logo">
     <h1>${bot.name}</h1>
     <p class="version">v${bot.version} — WhatsApp Bot</p>
 
