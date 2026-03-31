@@ -5,6 +5,7 @@ const Admin  = require('../database/models/Admin');
 const User   = require('../database/models/User');
 const logger = require('../utils/logger');
 const { bot } = require('../config/config');
+const { savedeleted } = require('../commands/general/reset');
 
 /**
  * Enregistre tous les listeners d'événements WhatsApp non-messages.
@@ -144,7 +145,7 @@ function registerEventHandlers(sock) {
   } catch (err) {
     logger.error('[group-participants.update] Erreur : ' + err.message);
   }
-});
+  });
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 3. MÉTADONNÉES DE GROUPE (chargement initial ou refresh)
@@ -288,6 +289,30 @@ function registerEventHandlers(sock) {
         }
       } catch (err) {
         logger.error('[messages.update] Erreur :', err.message);
+      }
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 10. RECUPERATION DES MESSAGES (pour anti-delete ou log)
+  // ═══════════════════════════════════════════════════════════════════════════
+  sock.ev.on('messages.delete', async (item) => {
+    if ('keys' in item) {
+      item.keys.forEach(key => {
+        // Les messages supprimés sont déjà loggés dans le listener précédent, ici on peut les stocker en mémoire pour une commande de "rappel" ou anti-delete
+      });
+    }
+  });
+
+  sock.ev.on('messages.update', (Updates) => {
+    for (const update of Updates) {
+      if (update.update?.status === 1) { //  MESSAGE_DELETED
+        const cached = update.update;
+        savedeleted.set(update.key.remoteJid, {
+          text: cached.conversation || cached.extendedTextMessage?.text || '',
+          sender: update.key.participant || update.key.remoteJid,
+          time: Date.now(),
+        });
       }
     }
   });
