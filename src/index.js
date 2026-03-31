@@ -329,39 +329,39 @@ function startWebServer() {
 async function startBot() {
   await connectDB();
 
-  // Charger session depuis MongoDB
-  const savedCreds = await loadSession();
+  // ── TOUJOURS useMultiFileAuthState pour les keys Signal ───────────────────
+  const { state: authState, saveCreds } = await useMultiFileAuthState(paths.auth);
 
-  // Créer un état auth compatible Baileys
-  let authState = {
-    creds: savedCreds || initAuthCreds(),
-    keys:  {} // géré en mémoire
-  };
-  const { version }                     = await fetchLatestBaileysVersion();
+  // ── Restaurer les creds depuis MongoDB si disponibles ────────────────────
+  const savedData = await loadSession();
+  if (savedData?.creds) {
+    Object.assign(authState.creds, savedData.creds);
+    logger.info('✅ Creds restaurés depuis MongoDB');
+  }
 
+  const { version } = await fetchLatestBaileysVersion();
   logger.info(`🚀 Démarrage ${bot.name} v${bot.version} — Baileys ${version.join('.')}`);
 
   const sock = makeWASocket({
     version,
     auth: {
       creds: authState.creds,
-      keys:  makeCacheableSignalKeyStore(authState.keys, logger),
+      keys:  makeCacheableSignalKeyStore(authState.keys, logger), // ← keys fichier local
     },
     logger,
     markOnlineOnConnect:            true,
     syncFullHistory:                false,
     generateHighQualityLinkPreview: false,
+    qrTimeout:                      60000,
   });
 
- // Sauvegarder dans MongoDB à chaque mise à jour
-  sock.ev.on('creds.update', async (update) => {
-    Object.assign(authState.creds, update);
-    await saveSession(authState.creds);
+  // ── Sauvegarder creds dans MongoDB + fichier local ────────────────────────
+  sock.ev.on('creds.update', async () => {
+    saveCreds();
+    await saveSession({ creds: authState.creds });
   });
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
-
-    // ── Nouveau QR généré → convertir en image base64 ──────────────────
     if (qr) {
       try {
         state.qr        = await qrcode.toDataURL(qr, { width: 300, margin: 2 });
@@ -372,23 +372,25 @@ async function startBot() {
       }
     }
 
-    // ── Bot connecté ───────────────────────────────────────────────────
     if (connection === 'open') {
       state.connected = true;
       state.qr        = null;
       logger.info(`✅ ${bot.name} connecté et opérationnel !`);
     }
 
-    // ── Déconnexion ────────────────────────────────────────────────────
     if (connection === 'close') {
       state.connected = false;
       state.qr        = null;
-
-      const code            = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = code !== DisconnectReason.loggedOut;
+      const code   = lastDisconnect?.error?.output?.statusCode;
+      const reason = lastDisconnect?.error?.message || '';
+      const is515  = reason.includes('515') || reason.includes('Stream Errored');
 
       if (code === DisconnectReason.loggedOut) {
-        logger.warn('❌ Session expirée. Supprimez auth_info_baileys/ et relancez.');
+        logger.warn('❌ Session expirée — nouveau QR requis.');
+        setTimeout(startBot, 3000);
+      } else if (is515) {
+        logger.info('🔄 Restart WhatsApp (515) — reconnexion immédiate...');
+        setTimeout(startBot, 1000);
       } else {
         logger.warn(`⚠️ Connexion fermée (code ${code}). Reconnexion dans 5s...`);
         setTimeout(startBot, 5000);
@@ -401,7 +403,7 @@ async function startBot() {
   sock.ev.on('messages.upsert', ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const msg of messages) {
-      queue.add(() => handleMessage(sock, msg));
+      handleMessage(sock, msg).catch(err => logger.error('Message error:', err.message));
     }
   });
 }

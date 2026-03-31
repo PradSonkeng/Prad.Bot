@@ -1,7 +1,7 @@
 'use strict';
 
 const { sendText } = require('../../utils/messageUtils');
-const { downloadMediaMessage } = require('@adiwajshing/baileys');
+const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 
 module.exports = {
   name: 'statusd',
