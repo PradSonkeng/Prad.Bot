@@ -1,6 +1,6 @@
 'use strict';
 const { sendText } = require('../../utils/messageUtils');
-const youtubedl    = require('youtube-dl-exec');
+const axios        = require('axios');
 const fs           = require('fs');
 const path         = require('path');
 const { paths } = require('../../config/config');
@@ -26,47 +26,48 @@ module.exports = {
         const tmpFile = path.join(paths.temp, `mp3_${Date.now()}.mp3`);
 
         try {
-            await youtubedl(url, {
-            output:              tmpFile,
-            extractAudio:        true,
-            audioFormat:         'mp3',
-            audioQuality:        0,       // meilleure qualité
-            noPlaylist:          true,
-            noWarnings:          true,
+            const res = await axios.post('https://api.cobalt.tools/api/json', {
+            url,
+            aFormat:      'mp3',
+            isAudioOnly:  true,
+            disableMetadata: true,
+        }, {
+            headers: {
+            'Accept':       'application/json',
+            'Content-Type': 'application/json',
+            },
+            timeout: 30000,
+        });
+
+        const data = res.data;
+
+        if (data.status === 'error') {
+            return sendText(sock, jid, `❌ ${data.text || 'Erreur.'}`);
+        }
+
+        if (data.status === 'redirect' || data.status === 'stream') {
+            const audio = await axios.get(data.url, {
+            responseType: 'arraybuffer',
+            timeout:      60000,
+            maxContentLength: 60 * 1024 * 1024,
             });
-
-            if (!fs.existsSync(tmpFile)) {
-                return sendText(sock, jid, '❌ Échec du téléchargement. Le fichier n\'a pas été trouvé.');
-            }
-            const stats = fs.statSync(tmpFile);
-            if (stats.size > 50 * 1024 * 1024) {
-                fs.unlinkSync(tmpFile);
-                return sendText(sock, jid, '❌ Le fichier téléchargé dépasse la limite de 50MB.');
-            }
-
-            const buffer = fs.readFileSync(tmpFile);
-            fs.unlinkSync(tmpFile);
-
-            // Extraire le titre de la vidéo pour le nom du fichier
-            let title = 'Audio';
-            try {
-                const info = await youtubedl(url, {
-                    dumpSingleJson: true,
-                    noWarnings: true,
-                });
-                title = info.title || title;
-            } catch {}
 
             await sock.sendMessage(jid, {
-                audio: buffer,
-                mimetype: 'audio/mpeg',
-                ptt: false,
+            audio:    Buffer.from(audio.data),
+            mimetype: 'audio/mpeg',
+            ptt:      false,
             });
 
-            await sendText(sock, jid, `📥 Audio téléchargé depuis:\n${url}\n🎵 Titre: ${title}`)
+            await sendText(sock, jid, '✅ Audio téléchargé !');
+            return;
+        }
+
+        await sendText(sock, jid, '❌ Format non supporté.');
+
         } catch (err) {
-            if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
-            await sendText(sock, jid, '❌ Une erreur est survenue lors du téléchargement de l\'audio.');
+            await sendText(sock, jid,
+                '❌ Impossible d\'extraire l\'audio.\n💡 Vérifiez que le lien est public.'
+            );
         }
     },
 };

@@ -28,6 +28,8 @@ async function videoToSticker(buffer) {
   return new Promise((resolve) => {
     try {
       const ffmpeg = require('fluent-ffmpeg');
+      const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path; // ← ajout
+      ffmpeg.setFfmpegPath(ffmpegPath);                            // ← ajout
       const tmpIn  = path.join(paths.temp, `in_${Date.now()}.mp4`);
       const tmpOut = path.join(paths.temp, `out_${Date.now()}.webp`);
 

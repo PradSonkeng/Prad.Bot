@@ -1,8 +1,6 @@
 'use strict';
 const { sendText } = require('../../utils/messageUtils');
-const youtubedl    = require('youtube-dl-exec').create(
-  process.env.YT_DLP_PATH || 'yt-dlp'
-);
+const axios        = require('axios');
 const fs           = require('fs');
 const path         = require('path');
 const { paths } = require('../../config/config');
@@ -28,33 +26,69 @@ module.exports = {
         const tmpFile = path.join(paths.temp, `dl_${Date.now()}.mp4`);
 
         try {
-            await youtubedl(url, {
-                output:          tmpFile,
-                format:          'bestvideo[ext=mp4][filesize<50M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<50M]/best',
-                mergeOutputFormat: 'mp4',
-                noPlaylist:      true,
-                noWarnings:      true,
-            });
+      // API cobalt.tools — supporte YouTube, TikTok, Instagram, Twitter...
+      const res = await axios.post('https://api.cobalt.tools/api/json', {
+        url,
+        vCodec:       'h264',
+        vQuality:     '720',
+        aFormat:      'mp3',
+        filenamePattern: 'basic',
+        isAudioOnly:  false,
+        disableMetadata: true,
+      }, {
+        headers: {
+          'Accept':       'application/json',
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      });
 
-            if (!fs.existsSync(tmpFile)) {
-                return sendText(sock, jid, '❌ Échec du téléchargement. Le fichier n\'a pas été trouvé.');
-            }
-            const stats = fs.statSync(tmpFile);
-            if (stats.size > 50 * 1024 * 1024) {
-                fs.unlinkSync(tmpFile);
-                return sendText(sock, jid, '❌ Le fichier téléchargé dépasse la limite de 50MB.');
-            }
+      const data = res.data;
 
-            const buffer = fs.readFileSync(tmpFile);
-            fs.unlinkSync(tmpFile);
+      if (data.status === 'error') {
+        return sendText(sock, jid, `❌ ${data.text || 'Erreur de téléchargement.'}`);
+      }
 
-            await sock.sendMessage(jid, {
-                video: buffer,
-                caption: `📥 Vidéo téléchargée depuis:\n${url}`,
-            });
-        }catch (err) {
-            if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
-            await sendText(sock, jid, '❌ Une erreur est survenue lors du téléchargement de la vidéo.');
+      if (data.status === 'redirect' || data.status === 'stream') {
+        const videoUrl = data.url;
+        const video    = await axios.get(videoUrl, {
+          responseType: 'arraybuffer',
+          timeout:      60000,
+          maxContentLength: 60 * 1024 * 1024,
+        });
+
+        if (video.data.byteLength > 60 * 1024 * 1024) {
+          return sendText(sock, jid, '❌ Vidéo trop lourde (max 60 MB).');
         }
+
+        await sock.sendMessage(jid, {
+          video:   Buffer.from(video.data),
+          caption: '✅ Vidéo téléchargée',
+        });
+        return;
+      }
+
+      if (data.status === 'picker') {
+        // Prendre le premier élément (meilleure qualité)
+        const item = data.picker?.[0];
+        if (!item?.url) return sendText(sock, jid, '❌ Impossible de récupérer la vidéo.');
+        const video = await axios.get(item.url, {
+          responseType: 'arraybuffer',
+          timeout: 60000,
+        });
+        await sock.sendMessage(jid, {
+          video:   Buffer.from(video.data),
+          caption: '✅ Vidéo téléchargée',
+        });
+        return;
+      }
+
+      await sendText(sock, jid, '❌ Format non supporté.');
+
+    } catch (err) {
+      await sendText(sock, jid,
+        '❌ Impossible de télécharger.\n💡 Vérifiez que le lien est public et réessayez.'
+      );
+    }
     },
 };

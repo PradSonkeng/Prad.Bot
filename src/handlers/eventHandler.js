@@ -7,6 +7,8 @@ const logger = require('../utils/logger');
 const { bot } = require('../config/config');
 const { savedeleted } = require('../commands/general/reset');
 
+const msgCache = new Map(); // cache des 100 derniers messages
+
 /**
  * Enregistre tous les listeners d'événements WhatsApp non-messages.
  * Centralise : groupes, participants, contacts, présence, appels.
@@ -260,6 +262,45 @@ function registerEventHandlers(sock) {
     }
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // . MESSAGES UPERSET (réaction ou log)
+  // ═══════════════════════════════════════════════════════════════════════════
+  sock.ev.on('messages.upsert', ({ messages }) => {
+  for (const msg of messages) {
+    if (!msg.key.fromMe && msg.message) {
+      // Mettre en cache les messages pour l'anti-delete
+      const text = msg.message?.conversation
+        || msg.message?.extendedTextMessage?.text
+        || msg.message?.imageMessage?.caption
+        || msg.message?.videoMessage?.caption
+        || '';
+      msgCache.set(msg.key.id, {
+        text,
+        sender: msg.key.participant || msg.key.remoteJid,
+        jid:    msg.key.remoteJid,
+        time:   (msg.messageTimestamp || Date.now() / 1000) * 1000,
+      });
+      // Garder seulement les 200 derniers messages
+      if (msgCache.size > 200) {
+        const firstKey = msgCache.keys().next().value;
+        msgCache.delete(firstKey);
+      }
+
+      // Détecter suppression
+      if (msg.message?.protocolMessage?.type === 0) {
+        const deletedId  = msg.message.protocolMessage.key?.id;
+        const cachedMsg  = msgCache.get(deletedId);
+        const remoteJid  = msg.key.remoteJid;
+        savedeleted.set(remoteJid, {
+          text:   cachedMsg?.text || '(média ou message non textuel)',
+          sender: cachedMsg?.sender || msg.key.participant || remoteJid,
+          time:   cachedMsg?.time || Date.now(),
+        });
+        logger.info(`[ANTI-DELETE] Message récupéré dans ${remoteJid}`);
+      }
+    }
+  }
+});
   // ═══════════════════════════════════════════════════════════════════════════
   // 8. MESSAGES SUPPRIMÉS (réaction ou log)
   // ═══════════════════════════════════════════════════════════════════════════

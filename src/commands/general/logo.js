@@ -18,7 +18,7 @@ module.exports = {
     await sendText(sock, jid, `⏳ Génération du logo *${text}*...`);
     try {
         const prompt = `3D glossy chrome metallic logo text "${text}", dark background, neon glow, ultra HD, 4K, professional design`;
-        const url    = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
+        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&model=flux&seed=${Date.now()}`;
         const res    = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
         await sendImage(sock, jid, Buffer.from(res.data), `Voici votre logo 3D personnalisé pour le texte: "${text}"`);
     }catch {
