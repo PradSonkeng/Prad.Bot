@@ -1,6 +1,8 @@
 'use strict';
 const { sendText } = require('../../utils/messageUtils');
-const youtubedl    = require('youtube-dl-exec');
+const youtubedl    = require('youtube-dl-exec').create(
+  process.env.YT_DLP_PATH || 'yt-dlp'
+);
 const fs           = require('fs');
 const path         = require('path');
 const { paths } = require('../../config/config');
