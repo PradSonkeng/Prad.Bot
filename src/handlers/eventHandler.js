@@ -334,29 +334,7 @@ function registerEventHandlers(sock) {
     }
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 10. RECUPERATION DES MESSAGES (pour anti-delete ou log)
-  // ═══════════════════════════════════════════════════════════════════════════
-  sock.ev.on('messages.delete', async (item) => {
-    if ('keys' in item) {
-      item.keys.forEach(key => {
-        // Les messages supprimés sont déjà loggés dans le listener précédent, ici on peut les stocker en mémoire pour une commande de "rappel" ou anti-delete
-      });
-    }
-  });
-
-  sock.ev.on('messages.update', (Updates) => {
-    for (const update of Updates) {
-      if (update.update?.status === 1) { //  MESSAGE_DELETED
-        const cached = update.update;
-        savedeleted.set(update.key.remoteJid, {
-          text: cached.conversation || cached.extendedTextMessage?.text || '',
-          sender: update.key.participant || update.key.remoteJid,
-          time: Date.now(),
-        });
-      }
-    }
-  });
+  
 
   logger.info('✅ EventHandler : tous les listeners enregistrés.');
 }
