@@ -309,7 +309,23 @@ function registerEventHandlers(sock) {
       if ('keys' in item) {
         for (const key of item.keys) {
           logger.info(`[MSG DELETED] Message supprimé dans ${key.remoteJid} — id: ${key.id}`);
-          // Ici vous pouvez ajouter : anti-delete, log en DB, etc.
+          // Tenter de récupérer le message dans le cache (prise en charge des cas
+          // où la suppression n'est pas fournie via protocolMessage dans messages.upsert)
+          try {
+            const cached = msgCache.get(key.id);
+            if (cached) {
+              savedeleted.set(key.remoteJid, {
+                text:   cached.text || '(média ou message non textuel)',
+                sender: cached.sender || key.participant || key.remoteJid,
+                time:   cached.time || Date.now(),
+              });
+              logger.info(`[ANTI-DELETE] Message récupéré depuis le cache pour ${key.remoteJid}`);
+            } else {
+              logger.warn(`[ANTI-DELETE] Aucun message en cache pour id ${key.id} dans ${key.remoteJid}`);
+            }
+          } catch (e) {
+            logger.warn('[messages.delete] Erreur lors de la récupération en cache : ' + (e && e.message));
+          }
         }
       }
     } catch (err) {
