@@ -4,8 +4,18 @@ const sharp   = require('sharp');
 const path    = require('path');
 const fs      = require('fs');
 const { paths } = require('../config/config');
+const logger  = require('./logger');
 
 if (!fs.existsSync(paths.temp)) fs.mkdirSync(paths.temp, { recursive: true });
+
+// Detect and set ffmpeg path at module load
+let ffmpegPath = null;
+try {
+  ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
+  logger.info({ ffmpegPath }, 'ffmpeg path detected from @ffmpeg-installer/ffmpeg');
+} catch (e) {
+  logger.warn('ffmpeg not found via @ffmpeg-installer/ffmpeg, will try system ffmpeg');
+}
 
 /**
  * Convertit une image en sticker WebP statique.
@@ -39,12 +49,22 @@ async function videoToSticker(buffer) {
     try {
       const ffmpeg = require('fluent-ffmpeg');
       const logger = require('./logger');
-      const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
-      ffmpeg.setFfmpegPath(ffmpegPath);
+      
+      // Use detected ffmpeg path or let fluent-ffmpeg find it
+      if (ffmpegPath) {
+        logger.info({ ffmpegPath }, 'setting ffmpeg path');
+        ffmpeg.setFfmpegPath(ffmpegPath);
+      } else {
+        logger.warn('no ffmpeg path configured, using system PATH');
+      }
+
       const tmpIn  = path.join(paths.temp, `in_${Date.now()}.mp4`);
       const tmpOut = path.join(paths.temp, `out_${Date.now()}.webp`);
 
+      logger.info({ tmpIn, tmpOut }, 'videoToSticker: writing input file');
       fs.writeFileSync(tmpIn, buffer);
+
+      logger.info({ tmpIn, tmpOut }, 'videoToSticker: starting ffmpeg conversion');
 
       ffmpeg(tmpIn)
         .outputOptions([
@@ -65,7 +85,7 @@ async function videoToSticker(buffer) {
         .toFormat('webp')
         .save(tmpOut)
         .on('start', (cmd) => {
-          logger.debug('videoToSticker: ffmpeg process started');
+          logger.debug({ cmd }, 'videoToSticker: ffmpeg process started');
         })
         .on('progress', (progress) => {
           logger.debug({ progress }, 'videoToSticker: ffmpeg progress');
@@ -76,14 +96,17 @@ async function videoToSticker(buffer) {
           resolved = true;
 
           try {
+            if (!fs.existsSync(tmpOut)) {
+              throw new Error('output file not created');
+            }
             const result = fs.readFileSync(tmpOut);
+            logger.info({ size: result.length }, 'videoToSticker: conversion succeeded');
             // Nettoyage
             try { fs.unlinkSync(tmpIn); } catch {}
             try { fs.unlinkSync(tmpOut); } catch {}
-            logger.debug({ size: result.length }, 'videoToSticker: conversion succeeded');
             resolve(result);
           } catch (err) {
-            logger.error({ err: err.message }, 'videoToSticker: failed to read output file');
+            logger.error({ err: err.message, tmpOut }, 'videoToSticker: failed to read output file');
             try { fs.unlinkSync(tmpIn); } catch {}
             try { fs.unlinkSync(tmpOut); } catch {}
             resolve(null);
@@ -95,7 +118,11 @@ async function videoToSticker(buffer) {
           resolved = true;
 
           // ffmpeg non dispo ou erreur → on nettoie et retourne null
-          logger.error({ err: err && err.message, stderr: err && err.stderr }, 'videoToSticker: ffmpeg error');
+          logger.error({ 
+            err: err && err.message, 
+            stderr: err && err.stderr,
+            code: err && err.code
+          }, 'videoToSticker: ffmpeg error');
           try { fs.unlinkSync(tmpIn); } catch {}
           try { fs.unlinkSync(tmpOut); } catch {}
           resolve(null);
@@ -105,7 +132,6 @@ async function videoToSticker(buffer) {
       if (resolved) return;
       resolved = true;
 
-      const logger = require('./logger');
       logger.error({ err: err && err.message, stack: err && err.stack }, 'videoToSticker: initialization failed');
       resolve(null);
     }
