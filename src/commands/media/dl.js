@@ -3,7 +3,8 @@ const { sendText } = require('../../utils/messageUtils');
 const axios        = require('axios');
 const fs           = require('fs');
 const path         = require('path');
-const { paths } = require('../../config/config');
+const { paths }    = require('../../config/config');
+const logger       = require('../../utils/logger');
 
 module.exports = {
     name: 'dl',
@@ -46,7 +47,16 @@ module.exports = {
       const data = res.data;
 
       if (data.status === 'error') {
-        return sendText(sock, jid, `❌ ${data.text || 'Erreur de téléchargement.'}`);
+          try { logger.warn({ url, error: data.text }, 'cobalt.tools reported error'); } catch (e) {}
+          return sendText(sock, jid, `❌ ${data.text || 'Erreur de téléchargement.'}`);
+        }
+
+        // Diagnostic logs pour aider à comprendre pourquoi l'API peut échouer
+        try { logger.info({ url, status: res.status, data: (typeof data === 'object' ? data : String(data).slice(0, 500)) }, 'cobalt.tools response'); } catch (e) {}
+
+        if (!data || typeof data !== 'object') {
+          try { logger.warn({ url, status: res.status, body: String(res.data).slice(0,1000) }, 'cobalt.tools returned unexpected body'); } catch (e) {}
+          return sendText(sock, jid, '❌ Le service de téléchargement a renvoyé une réponse inattendue.');
       }
 
       if (data.status === 'redirect' || data.status === 'stream') {
@@ -86,8 +96,13 @@ module.exports = {
       await sendText(sock, jid, '❌ Format non supporté.');
 
     } catch (err) {
+      // Log complet pour diagnostiquer (status, body, message)
+      try {
+        logger.error({ message: err.message, stack: err.stack, responseData: err.response?.data, status: err.response?.status }, 'dl command failed');
+      } catch (e) {}
+
       await sendText(sock, jid,
-        '❌ Impossible de télécharger.\n💡 Vérifiez que le lien est public et réessayez.'
+        '❌ Impossible de télécharger.\n💡 Vérifiez que le lien est public et réessayez. Si le problème persiste, contactez l\'administrateur.'
       );
     }
     },

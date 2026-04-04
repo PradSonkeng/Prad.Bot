@@ -3,7 +3,8 @@ const { sendText } = require('../../utils/messageUtils');
 const axios        = require('axios');
 const fs           = require('fs');
 const path         = require('path');
-const { paths } = require('../../config/config');
+const { paths }    = require('../../config/config');
+const logger       = require('../../utils/logger');
 
 module.exports = {
     name: 'mp3',
@@ -11,8 +12,8 @@ module.exports = {
     description: 'Télécharge l\'audio d\'une vidéo YouTube en MP3',
     category: 'media',
 
-    async execute({ sock, jid }, args) {
-        const url = args[0];
+    async execute({ sock, jid, args }) {
+        const url = (args && args[0]) || '';
         if (!url || !url.startsWith('http')) {
             return sendText(sock, jid,
                 '⚠️ Envoyez un lien valide.\n' +
@@ -65,6 +66,7 @@ module.exports = {
         await sendText(sock, jid, '❌ Format non supporté.');
 
         } catch (err) {
+            try { logger.error({ message: err.message, stack: err.stack, responseData: err.response?.data }, 'mp3 command failed'); } catch (e) {}
             await sendText(sock, jid,
                 '❌ Impossible d\'extraire l\'audio.\n💡 Vérifiez que le lien est public.'
             );
