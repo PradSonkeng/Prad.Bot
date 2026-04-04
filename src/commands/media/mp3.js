@@ -37,6 +37,16 @@ async function tryYtDlpAudio(url, destPath, opts = {}) {
     }
 }
 
+// Detect audio backend at module load
+let MP3_BACKEND = 'cobalt.tools';
+try {
+    require.resolve('yt-dlp-exec');
+    MP3_BACKEND = 'yt-dlp-exec';
+} catch (e) {
+    try { require.resolve('youtube-dl-exec'); MP3_BACKEND = 'youtube-dl-exec'; } catch (e2) {}
+}
+try { logger.info({ MP3_BACKEND }, 'mp3 backend selected at module load'); } catch (e) {}
+
 module.exports = {
     name: 'mp3',
     aliases: ['audio', 'music', 'song', 'musique'],
