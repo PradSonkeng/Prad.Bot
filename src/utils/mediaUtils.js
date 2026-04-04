@@ -68,6 +68,7 @@ async function videoToSticker(buffer) {
 
       ffmpeg(tmpIn)
         .outputOptions([
+          '-y',  // Overwrite output file without asking
           '-vcodec', 'libwebp',
           // Use fps and scaling, keep alpha, pad to 512x512
           '-vf',     'scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=white@0.0',
@@ -82,13 +83,22 @@ async function videoToSticker(buffer) {
           '-vsync', '0',
           '-t',     '00:00:07',  // max 7 secondes
         ])
+        .on('codecData', (data) => {
+          logger.info({ codecData: data }, 'videoToSticker: codec data received');
+        })
         .toFormat('webp')
         .save(tmpOut)
         .on('start', (cmd) => {
-          logger.debug({ cmd }, 'videoToSticker: ffmpeg process started');
+          logger.info({ cmd }, 'videoToSticker: ffmpeg process started with command');
         })
         .on('progress', (progress) => {
-          logger.debug({ progress }, 'videoToSticker: ffmpeg progress');
+          logger.info({ 
+            frames: progress.frames,
+            currentFps: progress.currentFps,
+            currentKbps: progress.currentKbps,
+            targetSize: progress.targetSize,
+            timemark: progress.timemark
+          }, 'videoToSticker: ffmpeg progress');
         })
         .on('end', () => {
           clearTimeout(timeout);
@@ -99,14 +109,15 @@ async function videoToSticker(buffer) {
             if (!fs.existsSync(tmpOut)) {
               throw new Error('output file not created');
             }
+            const stat = fs.statSync(tmpOut);
             const result = fs.readFileSync(tmpOut);
-            logger.info({ size: result.length }, 'videoToSticker: conversion succeeded');
+            logger.info({ size: result.length, stat: { size: stat.size } }, 'videoToSticker: conversion succeeded');
             // Nettoyage
             try { fs.unlinkSync(tmpIn); } catch {}
             try { fs.unlinkSync(tmpOut); } catch {}
             resolve(result);
           } catch (err) {
-            logger.error({ err: err.message, tmpOut }, 'videoToSticker: failed to read output file');
+            logger.error({ err: err.message, tmpOut, exists: fs.existsSync(tmpOut) }, 'videoToSticker: failed to read output file');
             try { fs.unlinkSync(tmpIn); } catch {}
             try { fs.unlinkSync(tmpOut); } catch {}
             resolve(null);
