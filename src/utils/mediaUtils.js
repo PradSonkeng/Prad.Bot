@@ -26,6 +26,16 @@ async function imageToSticker(buffer) {
  */
 async function videoToSticker(buffer) {
   return new Promise((resolve) => {
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        const logger = require('./logger');
+        logger.error('videoToSticker: ffmpeg timeout after 30s');
+        resolve(null);
+      }
+    }, 30000); // 30 second timeout
+
     try {
       const ffmpeg = require('fluent-ffmpeg');
       const logger = require('./logger');
@@ -54,13 +64,23 @@ async function videoToSticker(buffer) {
         ])
         .toFormat('webp')
         .save(tmpOut)
+        .on('start', (cmd) => {
+          logger.debug('videoToSticker: ffmpeg process started');
+        })
+        .on('progress', (progress) => {
+          logger.debug({ progress }, 'videoToSticker: ffmpeg progress');
+        })
         .on('end', () => {
+          clearTimeout(timeout);
+          if (resolved) return;
+          resolved = true;
+
           try {
             const result = fs.readFileSync(tmpOut);
             // Nettoyage
             try { fs.unlinkSync(tmpIn); } catch {}
             try { fs.unlinkSync(tmpOut); } catch {}
-            logger.debug({ tmpOut }, 'videoToSticker: conversion succeeded');
+            logger.debug({ size: result.length }, 'videoToSticker: conversion succeeded');
             resolve(result);
           } catch (err) {
             logger.error({ err: err.message }, 'videoToSticker: failed to read output file');
@@ -70,15 +90,23 @@ async function videoToSticker(buffer) {
           }
         })
         .on('error', (err) => {
+          clearTimeout(timeout);
+          if (resolved) return;
+          resolved = true;
+
           // ffmpeg non dispo ou erreur → on nettoie et retourne null
-          logger.warn({ err: err && err.message }, 'videoToSticker: ffmpeg error');
+          logger.error({ err: err && err.message, stderr: err && err.stderr }, 'videoToSticker: ffmpeg error');
           try { fs.unlinkSync(tmpIn); } catch {}
           try { fs.unlinkSync(tmpOut); } catch {}
           resolve(null);
         });
     } catch (err) {
+      clearTimeout(timeout);
+      if (resolved) return;
+      resolved = true;
+
       const logger = require('./logger');
-      logger.warn({ err: err && err.message }, 'videoToSticker: initialization failed');
+      logger.error({ err: err && err.message, stack: err && err.stack }, 'videoToSticker: initialization failed');
       resolve(null);
     }
   });

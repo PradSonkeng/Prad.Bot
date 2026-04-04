@@ -36,7 +36,11 @@ async function handleMessage(sock, msg) {
 
     // Exécution non-bloquante avec gestion d'erreur par commande
     command.execute({ sock, msg, jid, from, args, text }).catch(err => {
-      logger.error(`Erreur commande [${commandName}]:`, err.message);
+      logger.error({ 
+        command: commandName, 
+        message: err.message, 
+        stack: err.stack 
+      }, `Erreur commande [${commandName}]:`);
     });
 
   } catch (err) {
