@@ -23,7 +23,8 @@ async function sendVideo(sock, jid, buffer, caption = '') {
  * Envoie un sticker.
  */
 async function sendSticker(sock, jid, buffer) {
-  return sock.sendMessage(jid, { sticker: buffer });
+  // Ensure mimetype for webp so animated webp stickers are recognized correctly
+  return sock.sendMessage(jid, { sticker: buffer, mimetype: 'image/webp' });
 }
 
 /**

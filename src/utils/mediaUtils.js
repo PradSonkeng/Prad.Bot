@@ -38,7 +38,13 @@ async function videoToSticker(buffer) {
       ffmpeg(tmpIn)
         .outputOptions([
           '-vcodec', 'libwebp',
+          // Use fps and scaling, keep alpha, pad to 512x512
           '-vf',     'scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=white@0.0',
+          // quality / compression options for animated webp
+          '-lossless', '0',
+          '-qscale', '75',
+          '-compression_level', '6',
+          '-pix_fmt', 'yuva420p',
           '-loop',   '0',
           '-preset', 'default',
           '-an',
