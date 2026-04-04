@@ -11,13 +11,15 @@
     "pm2:logs": "pm2 logs prad.bot"
   },
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@whiskeysockets/baileys": "^6.7.9",
     "axios": "^1.7.2",
     "dotenv": "^16.6.1",
     "express": "^5.2.1",
-    "fluent-ffmpeg": "^2.1.2",
+    "fluent-ffmpeg": "^2.1.3",
     "glob": "^13.0.6",
     "jimp": "^1.1.4",
+    "link-preview-js": "^3.2.0",
     "mongodb": "^7.1.0",
     "mongoose": "^8.23.0",
     "node-cache": "^5.1.2",
