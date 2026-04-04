@@ -41,10 +41,10 @@ async function videoToSticker(buffer) {
       if (!resolved) {
         resolved = true;
         const logger = require('./logger');
-        logger.error('videoToSticker: ffmpeg timeout after 30s');
+        logger.error('videoToSticker: ffmpeg timeout after 120s');
         resolve(null);
       }
-    }, 30000); // 30 second timeout
+    }, 120000); // 120 second timeout (ffmpeg conversion takes ~40-50s)
 
     try {
       const ffmpeg = require('fluent-ffmpeg');
