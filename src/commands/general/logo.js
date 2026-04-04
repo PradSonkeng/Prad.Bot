@@ -19,7 +19,7 @@ module.exports = {
     await sendText(sock, jid, `⏳ Génération du logo *${text}*...`);
   try {
         const prompt = `3D glossy chrome metallic logo text "${text}", dark background, neon glow, ultra HD, 4K, professional design`;
-        const url    = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true`;
+        const url = `https://api.felo.ai/v1/gemini-image-gen?prompt=${encodeURIComponent(prompt)}&model=gemini-3-pro-image-preview`;
         const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
         await sendImage(sock, jid, Buffer.from(res.data), `Voici votre logo 3D personnalisé pour le texte: "${text}"`);
   } catch (err) {
