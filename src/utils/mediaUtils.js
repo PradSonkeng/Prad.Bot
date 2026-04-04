@@ -10,11 +10,20 @@ if (!fs.existsSync(paths.temp)) fs.mkdirSync(paths.temp, { recursive: true });
 
 // Detect and set ffmpeg path at module load
 let ffmpegPath = null;
+let ffprobePath = null;
 try {
   ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
   logger.info({ ffmpegPath }, 'ffmpeg path detected from @ffmpeg-installer/ffmpeg');
 } catch (e) {
   logger.warn('ffmpeg not found via @ffmpeg-installer/ffmpeg, will try system ffmpeg');
+}
+
+// Try to detect ffprobe (used by ffmpeg.ffprobe). Optional dependency: @ffmpeg-installer/ffprobe
+try {
+  ffprobePath = require('@ffprobe-installer/ffprobe').path;
+  logger.info({ ffprobePath }, 'ffprobe path detected from @ffprobe-installer/ffprobe');
+} catch (e) {
+  logger.warn('ffprobe not found via @ffprobe-installer/ffprobe; ffprobe-based checks will fail unless ffprobe is available on PATH');
 }
 
 /**
@@ -62,6 +71,14 @@ async function videoToSticker(buffer) {
         ffmpeg.setFfmpegPath(ffmpegPath);
       } else {
         logger.warn('no ffmpeg path configured, using system PATH');
+      }
+      if (ffprobePath) {
+        try {
+          ffmpeg.setFfprobePath(ffprobePath);
+          logger.info({ ffprobePath }, 'set ffprobe path for fluent-ffmpeg');
+        } catch (e) {
+          logger.warn({ err: e && e.message }, 'failed to set ffprobe path on fluent-ffmpeg');
+        }
       }
 
       const tmpIn  = path.join(paths.temp, `in_${Date.now()}.mp4`);
