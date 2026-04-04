@@ -33,6 +33,8 @@ module.exports = {
           'Puis ajoutez-le au PATH Windows et relancez le bot.'
         );
       }
+      // Send video sticker as animated video (WebP)
+      return sock.sendMessage(jid, { video: sticker, mimetype: 'video/webp', gifPlayback: true });
     } else {
       sticker = await imageToSticker(buffer);
     }

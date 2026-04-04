@@ -28,8 +28,9 @@ async function videoToSticker(buffer) {
   return new Promise((resolve) => {
     try {
       const ffmpeg = require('fluent-ffmpeg');
-      const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path; // ← ajout
-      ffmpeg.setFfmpegPath(ffmpegPath);                            // ← ajout
+      const logger = require('./logger');
+      const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
+      ffmpeg.setFfmpegPath(ffmpegPath);
       const tmpIn  = path.join(paths.temp, `in_${Date.now()}.mp4`);
       const tmpOut = path.join(paths.temp, `out_${Date.now()}.webp`);
 
@@ -54,19 +55,30 @@ async function videoToSticker(buffer) {
         .toFormat('webp')
         .save(tmpOut)
         .on('end', () => {
-          const result = fs.readFileSync(tmpOut);
-          // Nettoyage
-          fs.unlinkSync(tmpIn);
-          fs.unlinkSync(tmpOut);
-          resolve(result);
+          try {
+            const result = fs.readFileSync(tmpOut);
+            // Nettoyage
+            try { fs.unlinkSync(tmpIn); } catch {}
+            try { fs.unlinkSync(tmpOut); } catch {}
+            logger.debug({ tmpOut }, 'videoToSticker: conversion succeeded');
+            resolve(result);
+          } catch (err) {
+            logger.error({ err: err.message }, 'videoToSticker: failed to read output file');
+            try { fs.unlinkSync(tmpIn); } catch {}
+            try { fs.unlinkSync(tmpOut); } catch {}
+            resolve(null);
+          }
         })
         .on('error', (err) => {
           // ffmpeg non dispo ou erreur → on nettoie et retourne null
+          logger.warn({ err: err && err.message }, 'videoToSticker: ffmpeg error');
           try { fs.unlinkSync(tmpIn); } catch {}
           try { fs.unlinkSync(tmpOut); } catch {}
           resolve(null);
         });
-    } catch {
+    } catch (err) {
+      const logger = require('./logger');
+      logger.warn({ err: err && err.message }, 'videoToSticker: initialization failed');
       resolve(null);
     }
   });
