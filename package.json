@@ -16,6 +16,7 @@
     "dotenv": "^16.6.1",
     "express": "^5.2.1",
     "fluent-ffmpeg": "^2.1.2",
+    "glob": "^13.0.6",
     "jimp": "^1.1.4",
     "mongodb": "^7.1.0",
     "mongoose": "^8.23.0",
@@ -26,7 +27,9 @@
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "sharp": "^0.33.4",
-    "youtube-dl-exec": "^3.1.4"
+    "youtube-dl-exec": "^3.1.4",
+    "yt-dlp-exec": "^1.0.3",
+     "openai": "^3.2.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
