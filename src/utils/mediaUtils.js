@@ -37,14 +37,20 @@ async function imageToSticker(buffer) {
 async function videoToSticker(buffer) {
   return new Promise((resolve) => {
     let resolved = false;
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        const logger = require('./logger');
-        logger.error('videoToSticker: ffmpeg timeout after 30s');
-        resolve(null);
-      }
-    }, 30000); // 30 second timeout
+    const WATCHDOG_MS = 120000; // 2 minutes watchdog
+    let watchdog = null;
+
+    function setWatchdog() {
+      if (watchdog) clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          const logger = require('./logger');
+          logger.error('videoToSticker: ffmpeg watchdog timeout after 120s');
+          resolve(null);
+        }
+      }, WATCHDOG_MS);
+    }
 
     try {
       const ffmpeg = require('fluent-ffmpeg');
@@ -66,6 +72,9 @@ async function videoToSticker(buffer) {
 
       logger.info({ tmpIn, tmpOut }, 'videoToSticker: starting ffmpeg conversion');
 
+      // prime watchdog before starting
+      setWatchdog();
+
       ffmpeg(tmpIn)
         .outputOptions([
           '-y',  // Overwrite output file without asking
@@ -84,18 +93,28 @@ async function videoToSticker(buffer) {
           '-t',     '00:00:07',  // max 7 secondes
         ])
         .on('codecData', (data) => {
-          logger.debug({ codecData: data }, 'videoToSticker: codec data received');
+          logger.info({ codecData: data }, 'videoToSticker: codec data received');
+          setWatchdog();
         })
         .toFormat('webp')
         .save(tmpOut)
         .on('start', (cmd) => {
-          logger.debug({ cmd }, 'videoToSticker: ffmpeg process started');
+          logger.info({ cmd }, 'videoToSticker: ffmpeg process started');
+          setWatchdog();
         })
         .on('progress', (progress) => {
-          logger.debug({ progress }, 'videoToSticker: ffmpeg progress');
+          logger.info({ 
+            frames: progress.frames,
+            currentFps: progress.currentFps,
+            currentKbps: progress.currentKbps,
+            targetSize: progress.targetSize,
+            timemark: progress.timemark
+          }, 'videoToSticker: ffmpeg progress');
+          // reset watchdog on progress so we only time out on stalls
+          setWatchdog();
         })
         .on('end', () => {
-          clearTimeout(timeout);
+          if (watchdog) clearTimeout(watchdog);
           if (resolved) return;
           resolved = true;
 
@@ -117,7 +136,7 @@ async function videoToSticker(buffer) {
           }
         })
         .on('error', (err) => {
-          clearTimeout(timeout);
+          if (watchdog) clearTimeout(watchdog);
           if (resolved) return;
           resolved = true;
 
@@ -132,7 +151,7 @@ async function videoToSticker(buffer) {
           resolve(null);
         });
     } catch (err) {
-      clearTimeout(timeout);
+      if (watchdog) clearTimeout(watchdog);
       if (resolved) return;
       resolved = true;
 
