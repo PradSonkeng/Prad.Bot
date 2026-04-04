@@ -11,8 +11,8 @@ module.exports = {
     description: 'Télécharge une vidéo (YouTube, Instagram, TikTok, Facebook...)',
     category: 'media',
 
-    async execute({ sock, jid }, args) {
-        const url = args[0];
+  async execute({ sock, jid, args }) {
+    const url = (args && args[0]) || '';
         if (!url || !url.startsWith('http')) {
             return sendText(sock, jid,
                 '⚠️ Envoyez un lien valide.\n' +
