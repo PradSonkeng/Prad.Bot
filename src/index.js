@@ -8,8 +8,7 @@ const {
   makeCacheableSignalKeyStore,
 } = require('@whiskeysockets/baileys');
 
-const { saveSession, loadSession } = require('./utils/sessionStore');
-const { initAuthCreds, BufferJSON } = require('@whiskeysockets/baileys');
+const { saveSession, loadSession, updateSessionStatus } = require('./utils/sessionStore');
 const { connectDB }             = require('./database/connection');
 const { handleMessage }         = require('./handlers/messageHandler');
 const { registerEventHandlers } = require('./handlers/eventHandler');
@@ -35,7 +34,22 @@ const state = {
   connected: false,      // Bot connecté ?
   botName:   bot.name,
   version:   bot.version,
+  lastError: null,       // Dernière erreur rencontrée
+  startTime: Date.now(), // Timestamp du démarrage du bot
 };
+
+// ─── Gestion des reconnexions (backoff exponentiel) ──────────────────────────
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 15; // 15 minutes
+const BASE_RECONNECT_DELAY = 2000; // 2 secondes
+let botInstance = null;
+
+function calculateBackoffDelay(attempt) {
+  // Backoff exponentiel avec jitter: 2s, 4s, 8s, 16s, ... jusqu'à 60s max
+  const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, attempt), 60000);
+  const jitter = Math.random() * 1000; // Ajout de 0-1s de jitter pour éviter les reconnections simultanées
+  return Math.floor(delay + jitter);
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // SERVEUR WEB EXPRESS — Page QR code
@@ -192,6 +206,36 @@ function startWebServer() {
       font-size: 13px;
       color: #25d366;
     }
+    
+    .error-box {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .error-icon {
+      width: 80px;
+      height: 80px;
+      background: #ef4444;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+    }
+
+    .error-text {
+      font-size: 20px;
+      font-weight: 700;
+      color: #ef4444;
+    }
+
+    .uptime {
+      font-size: 12px;
+      color: #666;
+      margin-top: 16px;
+    }
   </style>
 </head>
 <body>
@@ -227,9 +271,29 @@ function startWebServer() {
     </div>
   </div>
 
+  <!-- État 4 : Erreur -->
+    <div id="error-box" class="error-box">
+      <div class="error-icon">⚠️</div>
+      <p class="error-text">Erreur de connexion</p>
+      <p class="connected-sub" id="error-msg">Le bot aura besoin de quelques secondes pour se reconnecter...</p>
+      <span class="badge" style="background: #7f1d1d; border-color: #ef4444; color: #ef4444;">🔴 Hors ligne</span>
+    </div>
+
+    <div class="uptime">Uptime: <span id="uptime">00:00:00</span></div>
+  </div>
+
   <script>
     let countdown = 60;
     let timer     = null;
+    let uptimeInterval = null;
+
+    function formatUptime(ms) {
+      const totalSec = Math.floor(ms / 1000);
+      const hours = Math.floor(totalSec / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+      return \`\${String(hours).padStart(2, '0')}:\${String(mins).padStart(2, '0')}:\${String(secs).padStart(2, '0')}\`;
+    }
 
     function startTimer() {
       countdown = 60;
@@ -241,17 +305,26 @@ function startWebServer() {
         if (countdown <= 0) clearInterval(timer);
       }, 1000);
     }
+    
+    function updateUptime() {
+      const el = document.getElementById('uptime');
+      if (el && window.startTime) {
+        el.textContent = formatUptime(Date.now() - window.startTime);
+      }
+    }
 
     function showWaiting() {
       document.getElementById('waiting').style.display      = 'flex';
       document.getElementById('qr-box').style.display       = 'none';
       document.getElementById('connected-box').style.display = 'none';
+      document.getElementById('error-box').style.display = 'none';
     }
 
     function showQR(src) {
       document.getElementById('waiting').style.display      = 'none';
       document.getElementById('qr-box').style.display       = 'flex';
       document.getElementById('connected-box').style.display = 'none';
+      document.getElementById('error-box').style.display = 'none';
       document.getElementById('qr-img').src                 = src;
       startTimer();
     }
@@ -260,7 +333,16 @@ function startWebServer() {
       document.getElementById('waiting').style.display      = 'none';
       document.getElementById('qr-box').style.display       = 'none';
       document.getElementById('connected-box').style.display = 'flex';
+      document.getElementById('error-box').style.display = 'none';
       clearInterval(timer);
+    }
+    
+    function showError(msg) {
+      document.getElementById('waiting').style.display = 'none';
+      document.getElementById('qr-box').style.display = 'none';
+      document.getElementById('connected-box').style.display = 'none';
+      document.getElementById('error-box').style.display = 'flex';
+      document.getElementById('error-msg').textContent = msg || 'Le bot aura besoin de quelques secondes pour se reconnecter...';
     }
 
     // ── Polling toutes les 2s pour récupérer l'état du bot ──
@@ -269,21 +351,28 @@ function startWebServer() {
         const res  = await fetch('/status');
         const data = await res.json();
 
+        window.startTime = data.startTime;
+        updateUptime();
+
         if (data.connected) {
           showConnected();
         } else if (data.qr) {
           // Afficher seulement si le QR a changé
           const img = document.getElementById('qr-img');
           if (img.src !== data.qr) showQR(data.qr);
+        } else if (data.lastError) {
+          showError(\`Erreur: \${data.lastError}\`);
         } else {
           showWaiting();
         }
       } catch (e) {
         // Serveur momentanément indispo — réessayer
+        console.error('Poll error:', e);
       }
       setTimeout(poll, 2000);
     }
 
+    uptimeInterval = setInterval(updateUptime, 1000);
     poll();
   </script>
 </body>
@@ -298,6 +387,9 @@ function startWebServer() {
       qr:        state.qr,
       botName:   state.botName,
       version:   state.version,
+      lastError: state.lastError,
+      startTime: state.startTime,
+      uptime: Date.now() - state.uptime,
     });
   });
 
@@ -316,7 +408,7 @@ function startWebServer() {
   if (APP_URL) {
     setInterval(async () => {
       try {
-        await require('axios').get(`${APP_URL}/health`);
+        await require('axios').get(`${APP_URL}/status`, { timeout: 5000 });
         logger.info('🔔 Ping réussi pour maintenir le bot éveillé');
       } catch (_) {}
     }, 15 * 60 * 1000); // Toutes les 15 minutes
@@ -327,16 +419,23 @@ function startWebServer() {
 // BOT WHATSAPP
 // ═════════════════════════════════════════════════════════════════════════════
 async function startBot() {
-  await connectDB();
+ try {
+   await connectDB();
 
   // ── TOUJOURS useMultiFileAuthState pour les keys Signal ───────────────────
   const { state: authState, saveCreds } = await useMultiFileAuthState(paths.auth);
 
-  // ── Restaurer les creds depuis MongoDB si disponibles ────────────────────
+  // ── Restaurer les creds + keys depuis MongoDB si disponibles ────────────────────
   const savedData = await loadSession();
-  if (savedData?.creds) {
+  if (savedData?.creds && savedData?.creds.me?.id) {
     Object.assign(authState.creds, savedData.creds);
-    logger.info('✅ Creds restaurés depuis MongoDB');
+    if(savedData.keys) {
+      Object.assign(authState.keys, savedData.keys);
+    }
+    logger.info(`✅ Session restaurée depuis MongoDB (${savedData.creds.me.id})`);
+  } else {
+    logger.info('📱 Pas de session valide — nouveau QR requis');
+    state.lastError = 'Pas de session enrégistrée';
   }
 
   const { version } = await fetchLatestBaileysVersion();
@@ -349,68 +448,138 @@ async function startBot() {
       keys:  makeCacheableSignalKeyStore(authState.keys, logger), // ← keys fichier local
     },
     logger,
+    browser: ['Ubuntu', 'Chrome', '120.0'],
     markOnlineOnConnect:            true,
     syncFullHistory:                false,
     generateHighQualityLinkPreview: false,
     qrTimeout:                      60000,
+    connectTimeoutMs:               15000,
+    defaultQueryTimeoutMs:          60000,
   });
+
+  botInstance = sock;
 
   // ── Sauvegarder creds dans MongoDB + fichier local ────────────────────────
   sock.ev.on('creds.update', async () => {
     saveCreds();
-    await saveSession({ creds: authState.creds });
+    try {
+      await saveSession( authState, authState.creds?.me?.id);
+    } catch (err) {
+      logger.error(`Erreur saveSession: ${err.message}`);
+    }
   });
 
+  // ── Gestion des mises à jour de connexion ──
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+    // QR généré
     if (qr) {
       try {
         state.qr        = await qrcode.toDataURL(qr, { width: 300, margin: 2 });
         state.connected = false;
-        logger.info('📱 QR code généré — ouvrez http://localhost:3000');
+        state.lastError = null;
+        logger.info('📱 QR code généré — scannez avec WhatsApp');
       } catch (err) {
-        logger.error('Erreur génération QR :', err.message);
+        logger.error(`Erreur génération QR: ${err.message}`);
+        state.lastError = 'Erreur QR';
       }
     }
 
+    // Connexion établie
     if (connection === 'open') {
       state.connected = true;
       state.qr        = null;
+      state.lastError = null;
+      reconnectAttempts = 0;
+      await updateSessionStatus('connected');
       logger.info(`✅ ${bot.name} connecté et opérationnel !`);
     }
 
+    // Connexion fermée
     if (connection === 'close') {
       state.connected = false;
       state.qr        = null;
-      const code   = lastDisconnect?.error?.output?.statusCode;
+      await updateSessionStatus('disconnected');
+      
+      const statusCode   = lastDisconnect?.error?.output?.statusCode;
       const reason = lastDisconnect?.error?.message || '';
-      const is515  = reason.includes('515') || reason.includes('Stream Errored');
+      const errorDesc = `${statusCode || 'UNKNOWN'}: ${reason}`;
 
-      if (code === DisconnectReason.loggedOut) {
+      logger.warn(`❌ Connexion fermée (${errorDesc})`);
+
+      //Diagnostic
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+      const is515 = reason.includes('515') || reason.includes('Stream Errored');
+      const isConnectionFailure = reason.includes('Connection Failure');
+
+      if (isLoggedOut) {
         logger.warn('❌ Session expirée — nouveau QR requis.');
-        setTimeout(startBot, 3000);
+        state.lastError = 'Session expirée';
+        reconnectAttempts = 0;// Reset pour forcer nouveau QR
       } else if (is515) {
         logger.info('🔄 Restart WhatsApp (515) — reconnexion immédiate...');
-        setTimeout(startBot, 1000);
-      } else {
-        logger.warn(`⚠️ Connexion fermée (code ${code}). Reconnexion dans 5s...`);
-        setTimeout(startBot, 5000);
+      } else if (isConnectionFailure) {
+        logger.warn('⚠️ Erreur WebSocket/Network');
+        state.lastError = 'Erreur réseau';
       }
+
+      //Backoff exponentiel
+      if(reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        logger.error(`❌ Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) atteint. Arrêt.`);
+        state.lastError = 'Impossible de se reconnecter';
+        process.exit(1);
+      }
+
+      const delay = calculateBackoffDelay(reconnectAttempts) ;
+      reconnectAttempts++;
+      logger.info(`🔄 Reconnexion dans ${Math.round(delay / 1000)}s (tentative ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+      setTimeout(startBot, deplay);
     }
   });
 
+  // ── Enregistre les autres event handlers ──
   registerEventHandlers(sock);
 
+  // ── Traitement des messages ──
   sock.ev.on('messages.upsert', ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const msg of messages) {
-      handleMessage(sock, msg).catch(err => logger.error('Message error:', err.message));
+      queue.add(() => 
+        handleMessage(sock, msg).catch(err => {
+          logger.error(`Message error: ${err.message}`);
+        })
+      );
     }
   });
+ } catch (err) {
+  logger.error(`Erreur fatale startBot: ${err.message}`);
+  statte.lastError = `Erreur: ${err.message}`;
+  reconnectAttempts++;
+
+  const deplay = calculateBackoffDelay(reconnectAttempts);
+  if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    logger.info(`🔄 Retry dans ${Math.round(delay / 1000)}s...`);
+    setTimeout(startBot, deplay);
+  } else {
+    logger.error(`❌ Erreur fatale après ${MAX_RECONNECT_ATTEMPTS} tentatives`);
+    process.exit(1);
+  }
+ }
 }
 
 // ─── Démarrage simultané du serveur web et du bot ────────────────────────────
 startWebServer();
 startBot().catch(err => {
-  logger.error('Erreur fatale : ' + err.message);
+  logger.error(`Erreur initialisationBot: ${err.message}`);
   process.exit(1);
+});
+
+//─── Graceful shutdown ──
+process.on('SIGINT', async () => {
+  logger.info('📴 Arrêt gracieux du bot...');
+  if (botInstance) {
+    try {
+      await botInstance.logout()
+    } catch (_) {}
+  }
+  process.exit(0);
 });
