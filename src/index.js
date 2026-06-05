@@ -393,6 +393,11 @@ function startWebServer() {
     });
   });
 
+  // ── Health check ──
+  app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', uptime: Date.now() - state.startTime });
+  });
+
   app.listen(PORT, () => {
     console.log('\n');
     console.log('╔══════════════════════════════════════════════╗');
@@ -555,10 +560,10 @@ async function startBot() {
   statte.lastError = `Erreur: ${err.message}`;
   reconnectAttempts++;
 
-  const deplay = calculateBackoffDelay(reconnectAttempts);
+  const delay = calculateBackoffDelay(reconnectAttempts);
   if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
     logger.info(`🔄 Retry dans ${Math.round(delay / 1000)}s...`);
-    setTimeout(startBot, deplay);
+    setTimeout(startBot, delay);
   } else {
     logger.error(`❌ Erreur fatale après ${MAX_RECONNECT_ATTEMPTS} tentatives`);
     process.exit(1);

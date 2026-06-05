@@ -62,7 +62,7 @@ async function saveSession(authState, phoneNumber = null) {
       updatedAt: new Date(),
     };
 
-    const result = await Session.findOneAndUpdate(
+    await Session.findOneAndUpdate(
       { sessionId: SESSION_ID },
       { $set: serialized },
       { upsert: true, new: true }

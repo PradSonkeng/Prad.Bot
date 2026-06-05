@@ -30,7 +30,7 @@ const SessionSchema = new mongoose.Schema({
   createdAt: { 
     type: Date,
     default: Date.now,
-    expires: 7776000,
+    expires: 7776000,  // Auto-delete après 90 jours
   },
   updatedAt: {
     type: Date,
