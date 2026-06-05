@@ -37,7 +37,7 @@ function deserializeSession(data) {
       return Buffer.from(value.data, 'base64');
     }
     // Bigint strings -> bigint (si c'était stocké)
-    if (typeof value === 'string' && /^\d+n$)/.test(value)) {
+    if (typeof value === 'string' && /^\d+n$/.test(value)) {
       return BigInt(value.slice(0, -1));
     }
     return value;
