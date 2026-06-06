@@ -8,7 +8,7 @@ const {
   makeCacheableSignalKeyStore,
 } = require('@whiskeysockets/baileys');
 
-const { saveSession, loadSession, updateSessionStatus } = require('./utils/sessionStore');
+const { saveSession, loadSession, updateSessionStatus, deleteSession } = require('./utils/sessionStore');
 const { connectDB }             = require('./database/connection');
 const { handleMessage }         = require('./handlers/messageHandler');
 const { registerEventHandlers } = require('./handlers/eventHandler');
@@ -432,7 +432,7 @@ async function startBot() {
 
   // ── Restaurer les creds + keys depuis MongoDB si disponibles ────────────────────
   const savedData = await loadSession();
-  if (savedData?.creds && savedData?.creds.me?.id) {
+  if (savedData?.creds?.me?.id) {
     Object.assign(authState.creds, savedData.creds);
     if(savedData.keys) {
       Object.assign(authState.keys, savedData.keys);
@@ -520,6 +520,16 @@ async function startBot() {
         logger.warn('❌ Session expirée — nouveau QR requis.');
         state.lastError = 'Session expirée';
         reconnectAttempts = 0;// Reset pour forcer nouveau QR
+
+        try {
+          await deleteSession();
+        } catch (err) {
+          logger.error(`Erreur suppression session: ${err.message}`);
+        }
+
+        try {
+          fs.rmSync(paths.auth, { recursive: true, force: true });
+        } catch (_) {}
       } else if (is515) {
         logger.info('🔄 Restart WhatsApp (515) — reconnexion immédiate...');
       } else if (isConnectionFailure) {
@@ -557,7 +567,7 @@ async function startBot() {
   });
  } catch (err) {
   logger.error(`Erreur fatale startBot: ${err.message}`);
-  statte.lastError = `Erreur: ${err.message}`;
+  state.lastError = `Erreur: ${err.message}`;
   reconnectAttempts++;
 
   const delay = calculateBackoffDelay(reconnectAttempts);
