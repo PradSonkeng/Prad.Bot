@@ -537,7 +537,7 @@ async function startBot() {
       const delay = calculateBackoffDelay(reconnectAttempts) ;
       reconnectAttempts++;
       logger.info(`🔄 Reconnexion dans ${Math.round(delay / 1000)}s (tentative ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-      setTimeout(startBot, deplay);
+      setTimeout(startBot, delay);
     }
   });
 
