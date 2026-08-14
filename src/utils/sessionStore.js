@@ -1,150 +1,120 @@
 'use strict';
 
+const { proto, initAuthCreds, BufferJSON } = require('@whiskeysockets/baileys');
 const Session = require('../database/models/Session');
 const logger  = require('./logger');
 
 const SESSION_ID = process.env.SESSION_ID || 'prad-bot-session';
 
 /**
- * Convertit Buffers et structures complexes en format sérialisables.
-*/
-function serializeSession(data) {
-  return JSON.parse(
-    JSON.stringify(data, (key, value) => {
-      // Buffer -> { _type: 'Buffer', data: base64 }
-      if(Buffer.isBuffer(value) || (value && typeof value === 'object'  && value.type === 'Buffer')) {
-        return {
-          _type: 'Buffer',
-          data: Buffer.from(value.data || value).toString('base64'),
-        };
-      }
-      // Bigint -> string
-      if (typeof value === 'bigint') {
-        return value.toString();
-      }
-      return value;
-    })
-  );
+ * Sérialise correctement les Buffers pour MongoDB
+ */
+function serialize(data) {
+  return JSON.parse(JSON.stringify(data, BufferJSON.replacer));
+}
+/**
+ * Désérialise les Buffers depuis MongoDB
+ */
+function deserialize(data) {
+  return JSON.parse(JSON.stringify(data), BufferJSON.reviver);
 }
 
 /**
- * Convertit les données sérialisées back to Buffer/Bigints.
+ * Charge ou crée l'état d'authentification Baileys depuis MongoDB.
+ * Retourne { state, saveCreds } compatible avec makeWASocket.
  */
-function deserializeSession(data) {
-  return JSON.parse(JSON.stringify(data), (key, value) => {
-    // { _type: 'Buffer', data: base64 } -> Buffer
-    if (value && typeof value === 'object' && value._type === 'Buffer') {
-      return Buffer.from(value.data, 'base64');
-    }
-    // Bigint strings -> bigint (si c'était stocké)
-    if (typeof value === 'string' && /^\d+n$/.test(value)) {
-      return BigInt(value.slice(0, -1));
-    }
-    return value;
-  });
-}
+async function useMongoAuthState() {
+  let doc = await Session.findOne({ sessionId: SESSION_ID });
 
-/**
- * Sauvegarde les credentials Baileys (creds + keys) dans MongoDB.
- */
-async function saveSession(authState, phoneNumber = null) {
-  try {
-    if (!authState || !authState.creds) {
-      logger.warn('⚠️ saveSession: authState.creds est vide, skipped');
-      return;
-    }
+  let creds;
+  let keys = {};
 
-    const serialized = {
-      creds: serializeSession(authState.creds),
-      keys: authState.keys ? serializeSession(authState.keys) : {},
-      phone: phoneNumber,
-      status: 'connected',
-      updatedAt: new Date(),
-    };
-
-    const result = await Session.findOneAndUpdate(
-      { sessionId: SESSION_ID },
-      { $set: serialized },
-      { upsert: true, new: true }
-    );
-
-    logger.info(`✅ Session sauvegardée (ID: ${SESSION_ID}`);
-    return result;
-  } catch (err) {
-    logger.error(`❌ saveSession error: ${err.message}`);
-    throw err;
+  if (doc?.data?.creds) {
+    const data = deserialize(doc.data);
+    creds = data.creds;
+    keys  = data.keys || {};
+    logger.info('✅ Session complète chargée depuis MongoDB');
+  } else {
+    creds = initAuthCreds();
+    logger.info('🆕 Nouvelle session créée (aucun historique trouvé)');
   }
-}
 
-/**
- * Charge les credentials depuis MongoDB.
- * Retourne un objet { creds, keys } ou null si aucune session sauvegardée.
- */
-async function loadSession() {
-  try {
-    const doc = await Session.findOne({ sessionId: SESSION_ID });
-    if (!doc) { 
-      logger.info('ℹ️ Aucune session trouvée en MongoDB — nouveau QR requis')
-      return null; 
+  const state = {
+    creds,
+    keys: {
+      get: async (type, ids) => {
+        const result = {};
+        for (const id of ids) {
+          let value = keys[`${type}-${id}`];
+          if (type === 'app-state-sync-key' && value) {
+            value = proto.Message.AppStateSyncKeyData.fromObject(value);
+          }
+          result[id] = value;
+        }
+        return result;
+      },
+      set: async (data) => {
+        for (const category in data) {
+          for (const id in data[category]) {
+            const value = data[category][id];
+            const key = `${category}-${id}`;
+            if (value) {
+              keys[key] = value;
+            } else {
+              delete keys[key];
+            }
+          }
+        }
+        // Sauvegarde immédiate des keys
+        await persist();
+      },
+    },
+  };
+
+  async function persist() {
+    try {
+      const payload = serialize({ creds: state.creds, keys });
+      await Session.findOneAndUpdate(
+        { sessionId: SESSION_ID },
+        { $set: { data: payload, updatedAt: Date.now() } },
+        { upsert: true }
+      );
+    } catch (err) {
+      logger.error('persist session error: ' + err.message);
     }
-
-    // ✅ Reconvertir base64 → Buffer
-    const raw = doc.toObject();
-    const authState = {
-      creds: deserializeSession(raw.creds || {}),
-      keys: deserializeSession(raw.keys || {}),
-    };
-
-    logger.info(`✅ Session chargée depuis MongoDB (${raw.phone || 'unknown'})`);
-    return authState;
-  } catch (err) {
-    logger.error(`❌ loadSession error:${err.message}`);
-    return null;
   }
-}
 
+  // saveCreds est appelé par Baileys à chaque mise à jour des credentials
+  const saveCreds = async () => {
+    await persist();
+  };
+
+  return { state, saveCreds };
+}
+ 
+ 
 /**
- * Supprime la session (pour forcer un nouveau scan).
+ * Supprime complètement la session (force un nouveau QR / pairing)
  */
 async function deleteSession() {
   try {
-    const result = await Session.deleteOne({ sessionId: SESSION_ID });
-    if(result.deletedCount > 0) {
-      logger.info('✅ Session supprimée — nouveau QR requis');
-    } else {
-      logger.warn('⚠️ Aucune session trouvée à supprimer');
-    }
+    await Session.deleteOne({ sessionId: SESSION_ID });
+    logger.info('🗑️  Session MongoDB supprimée — nouveau scan requis');
   } catch (err) {
-    logger.error(`❌ deleteSession error: ${err.message}`);
+    logger.error('deleteSession error: ' + err.message);
   }
 }
 
 /**
- * Retourne le statut de la session (connectée ou non).
+ * Vérifie si une session existe déjà
  */
-async function getSessionStatus() {
-  try {
-    const doc = await Session.findOne({ sessionId: SESSION_ID });
-    if(!doc) return 'no_session';
-    return doc.status || 'unknown';
-  } catch (err) {
-    logger.error(`❌ getSessionStatus error: ${err.message}`);
-    return 'error';
-  }
+async function hasSession() {
+  const doc = await Session.findOne({ sessionId: SESSION_ID }).select('_id').lean();
+  return !!doc;
 }
 
-/**
- * Met à jour le statut de la session.
- */
-async function updateSessionStatus(status) {
-  try {
-    await Session.findOneAndUpdate(
-      { sessionId: SESSION_ID },
-      { $set: { status, updatedAt: new Date() }}
-    );
-  } catch (err) {
-    logger.error(`❌ updateSessionStatus error: ${err.message}`);
-  }
-}
-
-module.exports = { saveSession, loadSession, deleteSession, getSessionStatus, updateSessionStatus,};
+module.exports = {
+  useMongoAuthState,
+  deleteSession,
+  hasSession,
+};
