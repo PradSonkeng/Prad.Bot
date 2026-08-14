@@ -1,28 +1,25 @@
 'use strict';
 
+/**
+ * Auth State 100% MongoDB — optimisé pour Koyeb / VPS / conteneurs éphémères
+ * Plus aucun dossier auth_info_baileys local.
+ * Les credentials + keys Signal sont entièrement persistés dans MongoDB.
+ */
+
 const { proto, initAuthCreds, BufferJSON } = require('@whiskeysockets/baileys');
 const Session = require('../database/models/Session');
 const logger  = require('./logger');
 
 const SESSION_ID = process.env.SESSION_ID || 'prad-bot-session';
 
-/**
- * Sérialise correctement les Buffers pour MongoDB
- */
 function serialize(data) {
   return JSON.parse(JSON.stringify(data, BufferJSON.replacer));
 }
-/**
- * Désérialise les Buffers depuis MongoDB
- */
+
 function deserialize(data) {
   return JSON.parse(JSON.stringify(data), BufferJSON.reviver);
 }
 
-/**
- * Charge ou crée l'état d'authentification Baileys depuis MongoDB.
- * Retourne { state, saveCreds } compatible avec makeWASocket.
- */
 async function useMongoAuthState() {
   let doc = await Session.findOne({ sessionId: SESSION_ID });
 
@@ -65,7 +62,6 @@ async function useMongoAuthState() {
             }
           }
         }
-        // Sauvegarde immédiate des keys
         await persist();
       },
     },
@@ -84,18 +80,13 @@ async function useMongoAuthState() {
     }
   }
 
-  // saveCreds est appelé par Baileys à chaque mise à jour des credentials
   const saveCreds = async () => {
     await persist();
   };
 
   return { state, saveCreds };
 }
- 
- 
-/**
- * Supprime complètement la session (force un nouveau QR / pairing)
- */
+
 async function deleteSession() {
   try {
     await Session.deleteOne({ sessionId: SESSION_ID });
@@ -105,9 +96,6 @@ async function deleteSession() {
   }
 }
 
-/**
- * Vérifie si une session existe déjà
- */
 async function hasSession() {
   const doc = await Session.findOne({ sessionId: SESSION_ID }).select('_id').lean();
   return !!doc;
