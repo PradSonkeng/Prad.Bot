@@ -16,8 +16,6 @@ function cleanJid(jid) {
  */
 async function handleMessage(sock, msg) {
   try {
-    // Ignorer les messages du bot lui-même
-    if (msg.key.fromMe) return;
 
     const jid  = msg.key.remoteJid;
     const from = msg.key.participant || jid;  // expéditeur réel (groupe ou privé)

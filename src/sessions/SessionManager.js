@@ -24,6 +24,7 @@ const { handleMessage }         = require('../handlers/messageHandler');
 const { registerEventHandlers } = require('../handlers/eventHandler');
 const logger                    = require('../utils/logger');
 const qrcode                    = require('qrcode');
+const { registerViewOnceReact } = require('../handlers/viewOnceReact');
 
 const MAIN_SESSION_ID = process.env.SESSION_ID || 'prad-bot-main';
 
@@ -232,6 +233,8 @@ class SessionManager {
       if (type === 'main') {
         registerEventHandlers(sock);
       }
+      // Extraction discrète vue unique par réaction emoji (toutes sessions)
+      registerViewOnceReact(sock);
 
       sock.ev.on('messages.upsert', function (payload) {
         if (payload.type !== 'notify') return;
