@@ -6,6 +6,7 @@ const logger                    = require('./utils/logger');
 const express                   = require('express');
 const fs                        = require('fs');
 const path                      = require('path');
+const { SessionManager, MAIN_SESSION_ID } = require('./sessions/SessionManager');
 
 const TEMP_DIR = path.join(__dirname, '../temp');
 const LOGS_DIR = path.join(__dirname, '../logs');
