@@ -68,11 +68,9 @@ class SessionManager {
       logger.info('Restauration session user: ' + u.sessionId + ' (' + (u.phone || '?') + ')');
       await this.startSession(u.sessionId, 'user');
     }
-  }
-  
-  // Nettoyage sessions user inactives (défaut 30 jours)
-  this._startInactivityCleanup();
-  
+    // Nettoyage sessions user inactives (défaut 30 jours)
+    this._startInactivityCleanup();
+  } 
   /**
    * Met à jour lastSeen (appelé à chaque commande user).
    */
