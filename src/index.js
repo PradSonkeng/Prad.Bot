@@ -453,6 +453,7 @@ async function startBot(forceNew) {
         state.hasSession = true;
         state.status = 'connected';
         logger.info(bot.name + ' connecté et opérationnel !');
+        console.log('✅ ' + bot.name + ' CONNECTÉ ET OPÉRATIONNEL')
       }
 
       if (connection === 'close') {

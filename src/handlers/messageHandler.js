@@ -3,6 +3,12 @@ const { isRateLimited }                  = require('../middlewares/rateLimit');
 const commandRegistry                    = require('../commands/index');
 const { bot }                            = require('../config/config');
 const logger                             = require('../utils/logger');
+const Group                              = require('../database/models/Group');
+
+function cleanJid(jid) {
+  if (!jid) return '';
+  return jid.replace(/:\d+@/, '@');
+}
 
 /**
  * Point d'entrée principal pour chaque message reçu.
@@ -17,6 +23,23 @@ async function handleMessage(sock, msg) {
     const from = msg.key.participant || jid;  // expéditeur réel (groupe ou privé)
     const text = getMessageText(msg).trim();
     const type = getMessageType(msg);
+    
+    // Mute : supprimer les messages des membres bloqués
+    if (jid.endsWith('@g.us') && from) {
+      try {
+        const group = await Group.findOne({ groupId: jid }).select('muted').lean();
+        if (group?.muted?.length) {
+          const fromClean = cleanJid(from);
+          const isMuted = group.muted.some(m => cleanJid(m) === fromClean);
+          if (isMuted) {
+            await sock.sendMessage(jid, { delete: msg.key });
+            return;
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
 
     if (!text && type === 'conversation') return;
 
@@ -33,14 +56,12 @@ async function handleMessage(sock, msg) {
     if (!command) return;
 
     logger.info(`[CMD] ${from} → ${bot.prefix}${commandName} ${args.join(' ')}`);
+    console.log(`[CMD] ${from} → ${bot.prefix}${commandName} ${args.join(' ')}`);
 
     // Exécution non-bloquante avec gestion d'erreur par commande
     command.execute({ sock, msg, jid, from, args, text }).catch(err => {
-      logger.error({ 
-        command: commandName, 
-        message: err.message, 
-        stack: err.stack 
-      }, `Erreur commande [${commandName}]:`);
+      logger.error(`Erreur commande [${commandName}]:`, err.message);
+      console.log(`Erreur commande [${commandName}]:`, err.message);
     });
 
   } catch (err) {
