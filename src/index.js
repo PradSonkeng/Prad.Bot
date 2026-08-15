@@ -1,11 +1,11 @@
 'use strict';
 
-const { connectDB }             = require('./database/connection');
-const { bot }                   = require('./config/config');
-const logger                    = require('./utils/logger');
 const express                   = require('express');
 const fs                        = require('fs');
 const path                      = require('path');
+const { connectDB }             = require('./database/connection');
+const { bot }                   = require('./config/config');
+const logger                    = require('./utils/logger');
 const { SessionManager, MAIN_SESSION_ID } = require('./sessions/SessionManager');
 
 const TEMP_DIR = path.join(__dirname, '../temp');
@@ -43,6 +43,7 @@ function startWebServer() {
       pairingCode: s ? s.pairingCode : null,
       phone: s ? s.phone : null,
       status: s ? s.status : 'init',
+      lastError: s ? (s.lastError || null) : null,
       botName: bot.name,
       version: bot.version,
     });
@@ -178,7 +179,7 @@ function pageHtml(mode) {
       ? 'Connecte <b>ton</b> WhatsApp pour utiliser les commandes.<br/>Tes chats et appels restent normaux.'
       : 'Session principale du bot (numéro dédié)<br/><a class="link" href="/user">→ Connexion utilisateur</a>'}</p>
 
-    <div id="waiting" class="box"><div class="spinner"></div><p style="color:#555;font-size:14px">Préparation...</p></div>
+    <div id="waiting" class="box"><div class="spinner"></div><p style="color:#555;font-size:14px" id="wait-text">Préparation...</p><p style="color:#444;font-size:11px;margin-top:8px" id="wait-debug"></p></div>
 
     <div id="auth-box" class="box">
       <div class="tabs">
@@ -267,12 +268,20 @@ function pageHtml(mode) {
       const data = await res.json();
       sessionId = data.sessionId;
     }
+    let pollCount = 0;
     async function poll() {
+      pollCount++;
       try {
         if (MODE === 'user') await ensureUserSession();
         const url = MODE === 'user' ? ('/status/' + sessionId) : '/status';
         const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
+
+        const dbg = document.getElementById('wait-debug');
+        const wtxt = document.getElementById('wait-text');
+        if (dbg) dbg.textContent = 'status=' + (data.status || '?') + ' | poll=' + pollCount;
+
         if (data.connected) {
           show('connected-box');
           if (data.phone) document.getElementById('phone-label').textContent = '+' + data.phone;
@@ -287,20 +296,36 @@ function pageHtml(mode) {
             document.getElementById('pair-form').style.display = 'none';
             document.getElementById('pair-result').style.display = 'block';
           }
-        } else show('waiting');
-      } catch(e) {}
+        } else {
+          show('waiting');
+          if (wtxt) {
+            if (pollCount < 3) wtxt.textContent = 'Connexion à WhatsApp...';
+            else if (pollCount < 8) wtxt.textContent = 'Génération du QR...';
+            else wtxt.textContent = 'Toujours en attente (status: ' + (data.status || 'init') + ')';
+          }
+        }
+      } catch (e) {
+        show('waiting');
+        const wtxt = document.getElementById('wait-text');
+        const dbg = document.getElementById('wait-debug');
+        if (wtxt) wtxt.textContent = 'Erreur réseau / serveur';
+        if (dbg) dbg.textContent = String(e.message || e);
+      }
       setTimeout(poll, 2000);
     }
     poll();
   </script>
 </body>
 </html>`;
-}
 
 async function main() {
+  console.log('[BOOT] starting...');
   await connectDB();
+  console.log('[BOOT] MongoDB OK');
   startWebServer();
+  console.log('[BOOT] web server started');
   await manager.init();
+  console.log('[BOOT] ' + bot.name + ' multi-sessions prêt');
   logger.info(bot.name + ' multi-sessions démarré');
 }
 

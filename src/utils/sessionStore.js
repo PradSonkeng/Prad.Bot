@@ -21,9 +21,8 @@ function deserialize(data) {
  * Auth state Baileys pour une session donnée.
  * @param {string} sessionId
  */
- 
-async function useMongoAuthState() {
-  let doc = await Session.findOne({ sessionId: SESSION_ID });
+async function useMongoAuthState(sessionId) {
+  let doc = await Session.findOne({ sessionId });
 
   let creds;
   let keys = {};
@@ -65,11 +64,8 @@ async function useMongoAuthState() {
           for (const id in data[category]) {
             const value = data[category][id];
             const key = `${category}-${id}`;
-            if (value) {
-              keys[key] = value;
-            } else {
-              delete keys[key];
-            }
+            if (value) keys[key] = value;
+            else delete keys[key];
           }
         }
         await persist();
@@ -82,12 +78,13 @@ async function useMongoAuthState() {
       const payload = serialize({ creds: state.creds, keys });
       await Session.findOneAndUpdate(
         { sessionId },
-        { $set: { 
-            data: payload, 
+        {
+          $set: {
+            data: payload,
             registered: !!state.creds?.registered,
             updatedAt: Date.now(),
-            lastSeen: Date.now(), 
-          }, 
+            lastSeen: Date.now(),
+          },
         },
         { upsert: true }
       );
@@ -96,12 +93,12 @@ async function useMongoAuthState() {
     }
   }
 
-  const saveCreds = async () =>persist();
+  const saveCreds = async () => persist();
 
   return { state, saveCreds };
 }
 
-async function deleteSession() {
+async function deleteSession(sessionId) {
   try {
     await Session.deleteOne({ sessionId });
     logger.info(`[${sessionId}] Session supprimée`);

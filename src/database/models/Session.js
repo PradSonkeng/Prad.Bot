@@ -29,7 +29,7 @@ const SessionSchema = new mongoose.Schema({
   // Credentials + keys Baileys
   data: {
     type: mongoose.Schema.Types.Mixed,
-    required: true,
+    default: null,
   },
   // true si le compte a terminé le pairing
   registered: {

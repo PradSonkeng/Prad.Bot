@@ -1,22 +1,22 @@
-const pino = require('pino');
-const path = require('path');
-const fs   = require('fs');
+'use strict';
 
-const logsDir = path.join(__dirname, '../../logs');
-if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+const pino = require('pino');
 
 const logger = pino({
-  level: 'info',
-  transport: {
-    targets: [
-      { target: 'pino-pretty', options: { colorize: true }, level: 'info' },
-      {
-        target: 'pino/file',
-        options: { destination: path.join(logsDir, 'bot.log') },
-        level: 'warn',
-      },
-    ],
-  },
+  level: process.env.LOG_LEVEL || 'info',
+  // Pas de transport worker → logs immédiats dans la console Koyeb
+  base: undefined,
+  timestamp: pino.stdTimeFunctions.isoTime,
 });
+
+// Helpers visibles même si pino est filtré
+logger.ok = function (msg) {
+  console.log('[OK] ' + msg);
+  logger.info(msg);
+};
+logger.fail = function (msg) {
+  console.error('[ERR] ' + msg);
+  logger.error(msg);
+};
 
 module.exports = logger;

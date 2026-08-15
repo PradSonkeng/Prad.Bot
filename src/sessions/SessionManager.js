@@ -27,6 +27,22 @@ const qrcode                    = require('qrcode');
 
 const MAIN_SESSION_ID = process.env.SESSION_ID || 'prad-bot-main';
 
+/** Logger minimal compatible Baileys (évite les crashs .child) */
+function baileysLogger() {
+  const noop = function () {};
+  const l = {
+    level: 'silent',
+    trace: noop,
+    debug: noop,
+    info: noop,
+    warn: noop,
+    error: noop,
+    fatal: noop,
+    child: function () { return l; },
+  };
+  return l;
+}
+
 class SessionManager {
   constructor() {
     this.sessions = new Map();
@@ -35,10 +51,13 @@ class SessionManager {
   }
 
   async init() {
+    console.log('[SessionManager] init...');
     const { version } = await fetchLatestBaileysVersion();
     this.version = version;
+    console.log('[SessionManager] Baileys ' + version.join('.'));
     logger.info('Baileys ' + version.join('.'));
 
+    console.log('[SessionManager] start main session: ' + MAIN_SESSION_ID);
     await this.startSession(MAIN_SESSION_ID, 'main');
 
     const users = await listSessions({ type: 'user', registered: true, active: true });
@@ -68,6 +87,7 @@ class SessionManager {
         qr: s.qr,
         pairingCode: s.pairingCode,
         phone: s.phone || null,
+        lastError: s.lastError || null,
       });
     }
     return result;
@@ -98,6 +118,7 @@ class SessionManager {
       pairingCode: null,
       type: type,
       phone: null,
+      lastError: null,
     };
     this.sessions.set(sessionId, entry);
 
@@ -110,10 +131,10 @@ class SessionManager {
         version: this.version,
         auth: {
           creds: authState.creds,
-          keys: makeCacheableSignalKeyStore(authState.keys, logger),
+          keys: makeCacheableSignalKeyStore(authState.keys, baileysLogger()),
         },
-        logger: logger,
-        browser: Browsers.ubuntu('Chrome'),
+        logger: baileysLogger(),
+        browser: ['Ubuntu', 'Chrome', '22.04.4'],
         markOnlineOnConnect: type === 'main',
         syncFullHistory: false,
         generateHighQualityLinkPreview: false,
@@ -139,6 +160,7 @@ class SessionManager {
             entry.status = 'qr';
             entry.pairingCode = null;
             logger.info('[' + sessionId + '] QR généré');
+            console.log('[QR] ' + sessionId);
           } catch (e) {
             logger.error('[' + sessionId + '] QR error: ' + e.message);
           }
@@ -221,8 +243,13 @@ class SessionManager {
       });
 
     } catch (err) {
-      logger.error('[' + sessionId + '] startSession fatal: ' + err.message);
+      const msg = (err && err.message) ? err.message : String(err);
+      const stack = (err && err.stack) ? err.stack : '';
+      console.error('[FATAL][' + sessionId + '] ' + msg);
+      console.error(stack);
+      logger.error('[' + sessionId + '] startSession fatal: ' + msg);
       entry.status = 'error';
+      entry.lastError = msg;
       this._scheduleRestart(sessionId, type, false, 8000);
     }
   }
