@@ -1,16 +1,13 @@
 'use strict';
 
 /**
- * Auth State 100% MongoDB — optimisé pour Koyeb / VPS / conteneurs éphémères
- * Plus aucun dossier auth_info_baileys local.
- * Les credentials + keys Signal sont entièrement persistés dans MongoDB.
+ * Auth State MongoDB multi-sessions.
+ * Chaque sessionId a ses propres creds + keys Signal.
  */
 
 const { proto, initAuthCreds, BufferJSON } = require('@whiskeysockets/baileys');
 const Session = require('../database/models/Session');
 const logger  = require('./logger');
-
-const SESSION_ID = process.env.SESSION_ID || 'prad-bot-session';
 
 function serialize(data) {
   return JSON.parse(JSON.stringify(data, BufferJSON.replacer));
@@ -20,6 +17,11 @@ function deserialize(data) {
   return JSON.parse(JSON.stringify(data), BufferJSON.reviver);
 }
 
+/**
+ * Auth state Baileys pour une session donnée.
+ * @param {string} sessionId
+ */
+ 
 async function useMongoAuthState() {
   let doc = await Session.findOne({ sessionId: SESSION_ID });
 
@@ -27,13 +29,21 @@ async function useMongoAuthState() {
   let keys = {};
 
   if (doc?.data?.creds) {
-    const data = deserialize(doc.data);
-    creds = data.creds;
-    keys  = data.keys || {};
-    logger.info('✅ Session complète chargée depuis MongoDB');
+    const parsed = deserialize(doc.data);
+    creds = parsed.creds;
+    keys  = parsed.keys || {};
+    logger.info(`[${sessionId}] Session chargée depuis MongoDB`);
   } else {
     creds = initAuthCreds();
-    logger.info('🆕 Nouvelle session créée (aucun historique trouvé)');
+    if (!doc) {
+      await Session.create({
+        sessionId,
+        type: sessionId === (process.env.SESSION_ID || 'prad-bot-main') ? 'main' : 'user',
+        data: null,
+        registered: false,
+      });
+    }
+    logger.info(`[${sessionId}] Nouvelle session créée`);
   }
 
   const state = {
@@ -71,38 +81,60 @@ async function useMongoAuthState() {
     try {
       const payload = serialize({ creds: state.creds, keys });
       await Session.findOneAndUpdate(
-        { sessionId: SESSION_ID },
-        { $set: { data: payload, updatedAt: Date.now() } },
+        { sessionId },
+        { $set: { 
+            data: payload, 
+            registered: !!state.creds?.registered,
+            updatedAt: Date.now(),
+            lastSeen: Date.now(), 
+          }, 
+        },
         { upsert: true }
       );
     } catch (err) {
-      logger.error('persist session error: ' + err.message);
+      logger.error(`[${sessionId}] persist error: ` + err.message);
     }
   }
 
-  const saveCreds = async () => {
-    await persist();
-  };
+  const saveCreds = async () =>persist();
 
   return { state, saveCreds };
 }
 
 async function deleteSession() {
   try {
-    await Session.deleteOne({ sessionId: SESSION_ID });
-    logger.info('🗑️  Session MongoDB supprimée — nouveau scan requis');
+    await Session.deleteOne({ sessionId });
+    logger.info(`[${sessionId}] Session supprimée`);
   } catch (err) {
-    logger.error('deleteSession error: ' + err.message);
+    logger.error(`[${sessionId}] deleteSession error: ` + err.message);
   }
 }
 
-async function hasSession() {
-  const doc = await Session.findOne({ sessionId: SESSION_ID }).select('_id').lean();
+async function hasSession(sessionId) {
+  const doc = await Session.findOne({ sessionId }).select('_id registered').lean();
   return !!doc;
+}
+
+async function listSessions(filter = {}) {
+  return Session.find(filter).select('-data').lean();
+}
+
+async function updateSessionMeta(sessionId, meta) {
+  await Session.findOneAndUpdate(
+    { sessionId },
+    { $set: { ...meta, updatedAt: Date.now(), lastSeen: Date.now() } }
+  );
+}
+
+async function getSession(sessionId) {
+  return Session.findOne({ sessionId }).select('-data').lean();
 }
 
 module.exports = {
   useMongoAuthState,
   deleteSession,
   hasSession,
+  listSessions,
+  updateSessionMeta,
+  getSession,
 };
