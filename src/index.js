@@ -1,28 +1,28 @@
 'use strict';
 
-const express                   = require('express');
-const fs                        = require('fs');
-const path                      = require('path');
-const { connectDB }             = require('./database/connection');
-const { bot }                   = require('./config/config');
-const logger                    = require('./utils/logger');
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const { connectDB } = require('./database/connection');
+const { bot } = require('./config/config');
+const logger = require('./utils/logger');
 const { SessionManager, MAIN_SESSION_ID } = require('./sessions/SessionManager');
 
 const TEMP_DIR = path.join(__dirname, '../temp');
 const LOGS_DIR = path.join(__dirname, '../logs');
-[TEMP_DIR, LOGS_DIR].forEach(p => {
+[TEMP_DIR, LOGS_DIR].forEach(function (p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 });
 
 const manager = new SessionManager();
 
 function startWebServer() {
-  const app  = express();
+  const app = express();
   const PORT = process.env.PORT || 3000;
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  
+
   // ── Page principale : session BOT ────────────────────────────────────────
   app.get('/', function (req, res) {
     res.send(pageHtml('main'));
@@ -32,7 +32,7 @@ function startWebServer() {
   app.get('/user', function (req, res) {
     res.send(pageHtml('user'));
   });
-  
+
   // État session main
   app.get('/status', function (req, res) {
     const s = manager.get(MAIN_SESSION_ID);
@@ -63,7 +63,7 @@ function startWebServer() {
       status: s.status,
     });
   });
-  
+
   app.get('/health', function (req, res) {
     const s = manager.get(MAIN_SESSION_ID);
     res.json({ status: 'ok', mainConnected: s ? s.status === 'connected' : false });
@@ -118,7 +118,7 @@ function startWebServer() {
       res.status(500).json({ error: err.message });
     }
   });
-  
+
   app.listen(PORT, function () {
     console.log('');
     console.log('╔══════════════════════════════════════════════════╗');
@@ -317,6 +317,7 @@ function pageHtml(mode) {
   </script>
 </body>
 </html>`;
+}
 
 async function main() {
   console.log('[BOOT] starting...');
