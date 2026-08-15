@@ -34,11 +34,11 @@ function startWebServer() {
   });
 
   // État session main
-  app.get('/status', function (req, res) {
+   app.get('/status', function (req, res) {
     const s = manager.get(MAIN_SESSION_ID);
     res.json({
       mode: 'main',
-      connected: s ? s.status === 'connected' : false,
+      connected: !!(s && s.status === 'connected'),
       qr: s ? s.qr : null,
       pairingCode: s ? s.pairingCode : null,
       phone: s ? s.phone : null,
@@ -61,6 +61,7 @@ function startWebServer() {
       pairingCode: s.pairingCode,
       phone: s.phone,
       status: s.status,
+      lastError: s.lastError || null,
     });
   });
 
@@ -89,6 +90,18 @@ function startWebServer() {
     try {
       const sessionId = await manager.createUserSession();
       res.json({ sessionId: sessionId });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  
+   // Reprendre une session user déjà liée (persistance navigateur + Mongo)
+  app.post('/user/resume', async function (req, res) {
+    try {
+      const sessionId = req.body.sessionId;
+      if (!sessionId) return res.status(400).json({ error: 'sessionId requis' });
+      const info = await manager.resumeSession(sessionId);
+      res.json(info);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -137,186 +150,124 @@ function startWebServer() {
 }
 
 function pageHtml(mode) {
-  const isUser = mode === 'user';
-  const title = isUser ? (bot.name + ' — Connecter mon WhatsApp') : (bot.name + ' — Session Bot');
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>${title}</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0a;font-family:system-ui,sans-serif;color:#fff}
-    .card{background:#111;border:1px solid #222;border-radius:24px;padding:36px 28px;text-align:center;max-width:440px;width:92%;box-shadow:0 0 60px rgba(37,211,102,.08)}
-    h1{font-size:20px;font-weight:700;color:#25d366;margin-bottom:4px}
-    .sub{font-size:13px;color:#666;margin-bottom:20px;line-height:1.5}
-    .box{display:none;flex-direction:column;align-items:center;gap:14px;width:100%}
-    .spinner{width:44px;height:44px;border:4px solid #222;border-top-color:#25d366;border-radius:50%;animation:spin .8s linear infinite}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    #qr-img{width:230px;height:230px;border-radius:14px;border:4px solid #25d366;padding:6px;background:#fff}
-    .instructions{background:#1a1a1a;border-radius:12px;padding:14px;text-align:left;font-size:13px;color:#aaa;line-height:1.7;width:100%}
-    .instructions span{color:#25d366;font-weight:600}
-    .btn{margin-top:8px;padding:11px 18px;border-radius:10px;border:none;font-size:13px;font-weight:600;cursor:pointer;width:100%}
-    .btn-danger{background:#dc2626;color:#fff}
-    .btn-primary{background:#25d366;color:#000}
-    .btn-secondary{background:#222;color:#aaa;border:1px solid #333}
-    .code-display{font-size:30px;font-weight:800;letter-spacing:6px;color:#25d366;background:#0d1f0d;padding:16px 20px;border-radius:14px;border:2px dashed #25d366;font-family:monospace}
-    input[type=text]{width:100%;padding:12px;border-radius:10px;border:1px solid #333;background:#1a1a1a;color:#fff;font-size:15px;text-align:center;outline:none}
-    input:focus{border-color:#25d366}
-    .tabs{display:flex;gap:8px;width:100%;margin-bottom:8px}
-    .tab{flex:1;padding:10px;border-radius:10px;border:1px solid #333;background:#1a1a1a;color:#888;cursor:pointer;font-size:13px;font-weight:600}
-    .tab.active{background:#25d366;color:#000;border-color:#25d366}
-    .badge{background:#1a2e1a;border:1px solid #25d366;border-radius:20px;padding:5px 14px;font-size:12px;color:#25d366}
-    .check{width:72px;height:72px;background:#25d366;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#000}
-    a.link{color:#25d366;font-size:13px}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>${bot.name}</h1>
-    <p class="sub">${isUser
-      ? 'Connecte <b>ton</b> WhatsApp pour utiliser les commandes.<br/>Tes chats et appels restent normaux.'
-      : 'Session principale du bot (numéro dédié)<br/><a class="link" href="/user">→ Connexion utilisateur</a>'}</p>
-
-    <div id="waiting" class="box"><div class="spinner"></div><p style="color:#555;font-size:14px" id="wait-text">Préparation...</p><p style="color:#444;font-size:11px;margin-top:8px" id="wait-debug"></p></div>
-
-    <div id="auth-box" class="box">
-      <div class="tabs">
-        <button class="tab active" id="tab-qr" onclick="switchTab('qr')">QR Code</button>
-        <button class="tab" id="tab-pair" onclick="switchTab('pair')">Code Pairing</button>
-      </div>
-      <div id="panel-qr">
-        <img id="qr-img" src="" alt="QR"/>
-        <div class="instructions">
-          <span>1.</span> WhatsApp → ⋮ → <b>Appareils liés</b><br/>
-          <span>2.</span> <b>Lier un appareil</b><br/>
-          <span>3.</span> Scannez rapidement
-        </div>
-      </div>
-      <div id="panel-pair" style="display:none;width:100%">
-        <div id="pair-form">
-          <p style="color:#aaa;font-size:13px;margin-bottom:10px">Numéro ${isUser ? 'de ton WhatsApp' : 'du bot'} (indicatif, sans +)</p>
-          <input type="text" id="phone-input" placeholder="ex: 237612345678"/>
-          <button class="btn btn-primary" onclick="requestPairing()" style="margin-top:12px">Générer le code</button>
-        </div>
-        <div id="pair-result" style="display:none">
-          <p style="color:#aaa;font-size:13px">Code à entrer dans WhatsApp :</p>
-          <div class="code-display" id="pair-code">----</div>
-          <div class="instructions" style="margin-top:12px">
-            <span>1.</span> Appareils liés → Lier un appareil<br/>
-            <span>2.</span> <b>Connecter avec un numéro</b><br/>
-            <span>3.</span> Tape le code
-          </div>
-        </div>
-      </div>
-      ${isUser ? '' : '<button class="btn btn-danger" onclick="forceReset()" style="margin-top:16px">Forcer nouvelle session bot</button>'}
-    </div>
-
-    <div id="connected-box" class="box">
-      <div class="check">OK</div>
-      <p style="font-size:18px;font-weight:700;color:#25d366">${isUser ? 'WhatsApp connecté !' : 'Bot connecté !'}</p>
-      <p style="font-size:13px;color:#666" id="phone-label"></p>
-      <span class="badge">En ligne</span>
-      <p style="font-size:12px;color:#555;margin-top:8px">${isUser
-        ? 'Envoie une commande avec le préfixe <b>' + bot.prefix + '</b> (ex: ' + bot.prefix + 'menu)'
-        : 'Session principale active'}</p>
-    </div>
-  </div>
-  <script>
-    const MODE = '${mode}';
-    let sessionId = null;
-    let timer = null;
-
-    function show(id) {
-      ['waiting','auth-box','connected-box'].forEach(function(x){
-        document.getElementById(x).style.display = (x === id) ? 'flex' : 'none';
-      });
-    }
-    function switchTab(tab) {
-      document.getElementById('tab-qr').classList.toggle('active', tab==='qr');
-      document.getElementById('tab-pair').classList.toggle('active', tab==='pair');
-      document.getElementById('panel-qr').style.display = tab==='qr' ? 'block' : 'none';
-      document.getElementById('panel-pair').style.display = tab==='pair' ? 'block' : 'none';
-    }
-    async function forceReset() {
-      if (!confirm('Nouvelle session bot ?')) return;
-      await fetch('/reset-session', { method: 'POST' });
-      show('waiting');
-    }
-    async function requestPairing() {
-      const phone = document.getElementById('phone-input').value.replace(/\D/g,'');
-      if (phone.length < 10) { alert('Numéro invalide'); return; }
-      if (MODE === 'user' && !sessionId) { alert('Session pas prête'); return; }
-      const body = { phone: phone };
-      if (MODE === 'user') body.sessionId = sessionId;
-      const res = await fetch('/request-pairing', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const data = await res.json();
-      if (data.code) {
-        document.getElementById('pair-code').textContent = data.code.match(/.{1,4}/g).join('-');
-        document.getElementById('pair-form').style.display = 'none';
-        document.getElementById('pair-result').style.display = 'block';
-      } else alert(data.error || 'Erreur');
-    }
-    async function ensureUserSession() {
-      if (MODE !== 'user') return;
-      if (sessionId) return;
-      const res = await fetch('/user/create', { method: 'POST' });
-      const data = await res.json();
-      sessionId = data.sessionId;
-    }
-    let pollCount = 0;
-    async function poll() {
-      pollCount++;
-      try {
-        if (MODE === 'user') await ensureUserSession();
-        const url = MODE === 'user' ? ('/status/' + sessionId) : '/status';
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-
-        const dbg = document.getElementById('wait-debug');
-        const wtxt = document.getElementById('wait-text');
-        if (dbg) dbg.textContent = 'status=' + (data.status || '?') + ' | poll=' + pollCount;
-
-        if (data.connected) {
-          show('connected-box');
-          if (data.phone) document.getElementById('phone-label').textContent = '+' + data.phone;
-        } else if (data.qr || data.pairingCode) {
-          show('auth-box');
-          if (data.qr) {
-            const img = document.getElementById('qr-img');
-            if (img.src !== data.qr) img.src = data.qr;
-          }
-          if (data.pairingCode) {
-            document.getElementById('pair-code').textContent = data.pairingCode.match(/.{1,4}/g).join('-');
-            document.getElementById('pair-form').style.display = 'none';
-            document.getElementById('pair-result').style.display = 'block';
-          }
-        } else {
-          show('waiting');
-          if (wtxt) {
-            if (pollCount < 3) wtxt.textContent = 'Connexion à WhatsApp...';
-            else if (pollCount < 8) wtxt.textContent = 'Génération du QR...';
-            else wtxt.textContent = 'Toujours en attente (status: ' + (data.status || 'init') + ')';
-          }
-        }
-      } catch (e) {
-        show('waiting');
-        const wtxt = document.getElementById('wait-text');
-        const dbg = document.getElementById('wait-debug');
-        if (wtxt) wtxt.textContent = 'Erreur réseau / serveur';
-        if (dbg) dbg.textContent = String(e.message || e);
-      }
-      setTimeout(poll, 2000);
-    }
-    poll();
-  </script>
-</body>
-</html>`;
+  var isUser = mode === 'user';
+  var sub = isUser
+    ? 'Connecte <b>ton</b> WhatsApp. Tes chats restent normaux.'
+    : 'Session principale du bot<br/><a class="link" href="/user">Connexion utilisateur</a>';
+  var okMsg = isUser ? 'WhatsApp connecte !' : 'Bot connecte !';
+  var resetBtn = isUser ? '' : '<button class="btn btn-danger" onclick="forceReset()" style="margin-top:16px">Forcer nouvelle session</button>';
+  
+  return '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/>' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0"/>' +
+    '<title>' + bot.name + '</title>' +
+    '<style>' +
+    '*{margin:0;padding:0;box-sizing:border-box}' +
+    'body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0a;font-family:system-ui,sans-serif;color:#fff}' +
+    '.card{background:#111;border:1px solid #222;border-radius:24px;padding:36px 28px;text-align:center;max-width:440px;width:92%}' +
+    'h1{font-size:20px;font-weight:700;color:#25d366;margin-bottom:4px}' +
+    '.sub{font-size:13px;color:#666;margin-bottom:20px;line-height:1.5}' +
+    '.box{display:none;flex-direction:column;align-items:center;gap:14px;width:100%}' +
+    '.spinner{width:44px;height:44px;border:4px solid #222;border-top-color:#25d366;border-radius:50%;animation:spin .8s linear infinite}' +
+    '@keyframes spin{to{transform:rotate(360deg)}}' +
+    '#qr-img{width:230px;height:230px;border-radius:14px;border:4px solid #25d366;padding:6px;background:#fff}' +
+    '.instructions{background:#1a1a1a;border-radius:12px;padding:14px;text-align:left;font-size:13px;color:#aaa;line-height:1.7;width:100%}' +
+    '.instructions span{color:#25d366;font-weight:600}' +
+    '.btn{margin-top:8px;padding:11px 18px;border-radius:10px;border:none;font-size:13px;font-weight:600;cursor:pointer;width:100%}' +
+    '.btn-danger{background:#dc2626;color:#fff}' +
+    '.btn-primary{background:#25d366;color:#000}' +
+    '.code-display{font-size:28px;font-weight:800;letter-spacing:5px;color:#25d366;background:#0d1f0d;padding:16px;border-radius:14px;border:2px dashed #25d366;font-family:monospace}' +
+    'input[type=text]{width:100%;padding:12px;border-radius:10px;border:1px solid #333;background:#1a1a1a;color:#fff;font-size:15px;text-align:center}' +
+    '.tabs{display:flex;gap:8px;width:100%;margin-bottom:8px}' +
+    '.tab{flex:1;padding:10px;border-radius:10px;border:1px solid #333;background:#1a1a1a;color:#888;cursor:pointer;font-size:13px;font-weight:600}' +
+    '.tab.active{background:#25d366;color:#000;border-color:#25d366}' +
+    '.badge{background:#1a2e1a;border:1px solid #25d366;border-radius:20px;padding:5px 14px;font-size:12px;color:#25d366}' +
+    '.check{width:72px;height:72px;background:#25d366;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#000}' +
+    'a.link{color:#25d366;font-size:13px}' +
+    '.err{color:#f87171;font-size:12px;background:#1f1212;padding:10px;border-radius:10px;width:100%;word-break:break-word}' +
+    '</style></head><body><div class="card">' +
+    '<h1>' + bot.name + '</h1>' +
+    '<p class="sub">' + sub + '</p>' +
+    '<div id="waiting" class="box" style="display:flex"><div class="spinner"></div>' +
+    '<p style="color:#555;font-size:14px" id="wait-text">Preparation...</p>' +
+    '<p style="color:#444;font-size:11px" id="wait-debug"></p></div>' +
+    '<div id="auth-box" class="box">' +
+    '<div class="tabs">' +
+    '<button class="tab active" id="tab-qr" onclick="switchTab(\'qr\')">QR Code</button>' +
+    '<button class="tab" id="tab-pair" onclick="switchTab(\'pair\')">Code Pairing</button>' +
+    '</div>' +
+    '<div id="panel-qr"><img id="qr-img" src="" alt="QR"/>' +
+    '<div class="instructions"><span>1.</span> WhatsApp - Appareils lies<br/>' +
+    '<span>2.</span> Lier un appareil<br/><span>3.</span> Scannez</div></div>' +
+    '<div id="panel-pair" style="display:none;width:100%">' +
+    '<div id="pair-form"><p style="color:#aaa;font-size:13px;margin-bottom:10px">Numero (indicatif, sans +)</p>' +
+    '<input type="text" id="phone-input" placeholder="ex: 237612345678"/>' +
+    '<button class="btn btn-primary" onclick="requestPairing()" style="margin-top:12px">Generer le code</button></div>' +
+    '<div id="pair-result" style="display:none"><p style="color:#aaa;font-size:13px">Code WhatsApp :</p>' +
+    '<div class="code-display" id="pair-code">----</div></div></div>' +
+    resetBtn +
+    '</div>' +
+    '<div id="connected-box" class="box"><div class="check">OK</div>' +
+    '<p style="font-size:18px;font-weight:700;color:#25d366">' + okMsg + '</p>' +
+    '<p style="font-size:13px;color:#666" id="phone-label"></p>' +
+    '<span class="badge">En ligne</span></div>' +
+    '<div id="error-box" class="box"><p class="err" id="error-text">Erreur</p>' +
+    '<button class="btn btn-danger" onclick="forceReset()">Reessayer</button></div>' +
+    '</div><script>' +
+    'var MODE="' + mode + '";var sessionId=null;var pollCount=0;' +
+    'function show(id){["waiting","auth-box","connected-box","error-box"].forEach(function(x){' +
+    'document.getElementById(x).style.display=(x===id)?"flex":"none";});}' +
+    'function switchTab(tab){' +
+    'document.getElementById("tab-qr").classList.toggle("active",tab==="qr");' +
+    'document.getElementById("tab-pair").classList.toggle("active",tab==="pair");' +
+    'document.getElementById("panel-qr").style.display=tab==="qr"?"block":"none";' +
+    'document.getElementById("panel-pair").style.display=tab==="pair"?"block":"none";}' +
+    'async function forceReset(){if(!confirm("Nouvelle session ?"))return;' +
+    'await fetch("/reset-session",{method:"POST"});show("waiting");}' +
+    'async function requestPairing(){' +
+    'var phone=document.getElementById("phone-input").value.replace(/\\D/g,"");' +
+    'if(phone.length<10){alert("Numero invalide");return;}' +
+    'if(MODE==="user"&&!sessionId){alert("Session pas prete");return;}' +
+    'var body={phone:phone};if(MODE==="user")body.sessionId=sessionId;' +
+    'var res=await fetch("/request-pairing",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});' +
+    'var data=await res.json();' +
+    'if(data.code){document.getElementById("pair-code").textContent=data.code.match(/.{1,4}/g).join("-");' +
+    'document.getElementById("pair-form").style.display="none";' +
+    'document.getElementById("pair-result").style.display="block";}' +
+    'else alert(data.error||"Erreur");}' +
+    'async function ensureUserSession(){' +
+    'if(MODE!=="user"||sessionId)return;' +
+    'var saved=localStorage.getItem("prad_user_session");' +
+    'if(saved){try{' +
+    'var res=await fetch("/user/resume",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:saved})});' +
+    'var data=await res.json();' +
+    'if(res.ok&&data.sessionId){sessionId=data.sessionId;localStorage.setItem("prad_user_session",sessionId);return;}' +
+    '}catch(e){localStorage.removeItem("prad_user_session");}}' +
+    'var res2=await fetch("/user/create",{method:"POST"});' +
+    'var data2=await res2.json();sessionId=data2.sessionId;' +
+    'if(sessionId)localStorage.setItem("prad_user_session",sessionId);}' +
+    'async function poll(){pollCount++;try{' +
+    'if(MODE==="user")await ensureUserSession();' +
+    'var url=MODE==="user"?("/status/"+sessionId):"/status";' +
+    'var res=await fetch(url);if(!res.ok)throw new Error("HTTP "+res.status);' +
+    'var data=await res.json();' +
+    'var dbg=document.getElementById("wait-debug");' +
+    'if(dbg)dbg.textContent="status="+(data.status||"?")+" | poll="+pollCount;' +
+    'if(data.connected){show("connected-box");' +
+    'if(MODE==="user"&&sessionId)localStorage.setItem("prad_user_session",sessionId);' +
+    'if(data.phone)document.getElementById("phone-label").textContent="+"+data.phone;}' +
+    'else if(data.qr||data.pairingCode){show("auth-box");' +
+    'if(data.qr){var img=document.getElementById("qr-img");if(img.src!==data.qr)img.src=data.qr;}' +
+    'if(data.pairingCode){document.getElementById("pair-code").textContent=data.pairingCode.match(/.{1,4}/g).join("-");' +
+    'document.getElementById("pair-form").style.display="none";' +
+    'document.getElementById("pair-result").style.display="block";}}' +
+    'else if(data.lastError||data.status==="error"){' +
+    'show("error-box");document.getElementById("error-text").textContent=data.lastError||"Erreur de session";}' +
+    'else{show("waiting");var w=document.getElementById("wait-text");' +
+    'if(w)w.textContent=pollCount<5?"Connexion WhatsApp...":"En attente ("+(data.status||"init")+")";}' +
+    '}catch(e){show("waiting");var w=document.getElementById("wait-text");if(w)w.textContent="Erreur reseau";' +
+    'var d=document.getElementById("wait-debug");if(d)d.textContent=String(e.message||e);}' +
+    'setTimeout(poll,2000);}poll();' +
+    '</script></body></html>';
 }
 
 async function main() {
@@ -331,6 +282,7 @@ async function main() {
 }
 
 main().catch(function (err) {
+  console.error('[BOOT FATAL] ' + err.message);
   logger.error('Erreur fatale : ' + err.message);
   process.exit(1);
 });

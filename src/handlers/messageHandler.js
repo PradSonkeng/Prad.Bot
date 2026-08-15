@@ -1,9 +1,12 @@
+'use strict';
+
 const { getMessageText, getMessageType } = require('../utils/messageUtils');
 const { isRateLimited }                  = require('../middlewares/rateLimit');
 const commandRegistry                    = require('../commands/index');
 const { bot }                            = require('../config/config');
 const logger                             = require('../utils/logger');
 const Group                              = require('../database/models/Group');
+const Session                            = require('../database/models/Session');
 
 function cleanJid(jid) {
   if (!jid) return '';
@@ -55,6 +58,14 @@ async function handleMessage(sock, msg) {
 
     logger.info(`[CMD] ${from} → ${bot.prefix}${commandName} ${args.join(' ')}`);
     console.log(`[CMD] ${from} → ${bot.prefix}${commandName} ${args.join(' ')}`);
+    
+    // Persistance : activité session user
+    if (sock.sessionId && sock.sessionType === 'user') {
+      Session.updateOne(
+        { sessionId: sock.sessionId },
+        { $set: { lastSeen: new Date() } }
+      ).catch(() => {});
+    }
 
     // Exécution non-bloquante avec gestion d'erreur par commande
     command.execute({ sock, msg, jid, from, args, text }).catch(err => {

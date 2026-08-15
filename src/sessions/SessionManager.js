@@ -49,6 +49,7 @@ class SessionManager {
     this.sessions = new Map();
     this.version = null;
     this._restartTimers = new Map();
+    this._starting = new Set(); // évite double démarrage
   }
 
   async init() {
@@ -67,6 +68,49 @@ class SessionManager {
       logger.info('Restauration session user: ' + u.sessionId + ' (' + (u.phone || '?') + ')');
       await this.startSession(u.sessionId, 'user');
     }
+  }
+  
+  // Nettoyage sessions user inactives (défaut 30 jours)
+  this._startInactivityCleanup();
+  
+  /**
+   * Met à jour lastSeen (appelé à chaque commande user).
+   */
+  async touchSession(sessionId) {
+    try {
+      await updateSessionMeta(sessionId, { lastSeen: Date.now() });
+    } catch (_) {}
+  }
+
+  /**
+   * Supprime les sessions user inactives depuis INACTIVITY_DAYS (défaut 30).
+   */
+  _startInactivityCleanup() {
+    const days = parseInt(process.env.SESSION_INACTIVITY_DAYS || '30', 10);
+    const ms = days * 24 * 60 * 60 * 1000;
+    const self = this;
+
+    async function run() {
+      try {
+        const users = await listSessions({ type: 'user' });
+        const now = Date.now();
+        for (const u of users) {
+          if (u.sessionId === MAIN_SESSION_ID) continue;
+          const last = u.lastSeen ? new Date(u.lastSeen).getTime() : (u.updatedAt ? new Date(u.updatedAt).getTime() : 0);
+          if (last && (now - last) > ms) {
+            console.log('[CLEANUP] Session inactive ' + u.sessionId + ' (>' + days + 'j) — suppression');
+            try { await self.removeSession(u.sessionId); } catch (_) {}
+          }
+        }
+      } catch (e) {
+        console.error('[CLEANUP] error: ' + e.message);
+      }
+    }
+
+    // Toutes les 6 heures
+    setInterval(run, 6 * 60 * 60 * 1000);
+    // Premier passage après 2 min
+    setTimeout(run, 120000);
   }
 
   getMainSessionId() {
@@ -98,6 +142,11 @@ class SessionManager {
     if (type === undefined) type = 'user';
     if (forceNew === undefined) forceNew = false;
 
+    if (this._starting.has(sessionId)) {
+      console.log('[SKIP] startSession déjà en cours: ' + sessionId);
+      return;
+    }
+    this._starting.add(sessionId);
     clearTimeout(this._restartTimers.get(sessionId));
 
     if (forceNew) {
@@ -146,6 +195,8 @@ class SessionManager {
       });
 
       entry.sock = sock;
+      sock.sessionId = sessionId;
+      sock.sessionType = type;
 
       sock.ev.on('creds.update', saveCreds);
 
@@ -202,12 +253,22 @@ class SessionManager {
           }
           logger.warn('[' + sessionId + '] Fermé — ' + statusCode + ' | ' + reason);
 
+          // 440 conflict = une autre connexion utilise la même session
+          // → NE PAS spammer les reconnexions (sinon boucle infinie)
+          if (statusCode === 440 || (reason && reason.indexOf('conflict') !== -1)) {
+            console.warn('[CONFLICT][' + sessionId + '] attente 30s avant reconnexion...');
+            entry.status = 'conflict';
+            entry.lastError = 'Conflict 440 — autre connexion active. Retry dans 30s.';
+            self._scheduleRestart(sessionId, type, false, 30000);
+            return;
+          }
+
           if (
             statusCode === DisconnectReason.restartRequired ||
             statusCode === 515 ||
-            (reason && (reason.indexOf('Stream Errored') !== -1 || reason.indexOf('restart required') !== -1))
+            (reason && reason.indexOf('restart required') !== -1)
           ) {
-            self._scheduleRestart(sessionId, type, false, 1500);
+            self._scheduleRestart(sessionId, type, false, 2000);
             return;
           }
 
@@ -218,21 +279,29 @@ class SessionManager {
           ) {
             await deleteSession(sessionId);
             entry.status = 'logged_out';
+            entry.lastError = 'Session déconnectée (logged out)';
             if (type === 'main') {
-              self._scheduleRestart(sessionId, type, true, 2500);
+              self._scheduleRestart(sessionId, type, true, 3000);
             } else {
               self.sessions.delete(sessionId);
             }
             return;
           }
 
-          self._scheduleRestart(sessionId, type, false, 5000);
+          // Stream Errored générique : backoff progressif
+          if (reason && reason.indexOf('Stream Errored') !== -1) {
+            self._scheduleRestart(sessionId, type, false, 15000);
+            return;
+          }
+
+          self._scheduleRestart(sessionId, type, false, 8000);
         }
       });
 
       if (type === 'main') {
         registerEventHandlers(sock);
       }
+
       // Extraction discrète vue unique par réaction emoji (toutes sessions)
       registerViewOnceReact(sock);
 
@@ -245,7 +314,11 @@ class SessionManager {
         });
       });
 
+      this._starting.delete(sessionId);
+
     } catch (err) {
+      this._starting.delete(sessionId);
+
       const msg = (err && err.message) ? err.message : String(err);
       const stack = (err && err.stack) ? err.stack : '';
       console.error('[FATAL][' + sessionId + '] ' + msg);
@@ -264,6 +337,32 @@ class SessionManager {
       self.startSession(sessionId, type, forceNew);
     }, delay);
     this._restartTimers.set(sessionId, t);
+  }
+
+  /**
+   * Reprend une session user existante (après refresh navigateur / redémarrage).
+   * Si absente en mémoire mais présente en Mongo (registered), la relance.
+   */
+  async resumeSession(sessionId) {
+    if (!sessionId) throw new Error('sessionId requis');
+    if (sessionId === MAIN_SESSION_ID) throw new Error('Session principale interdite ici');
+
+    const existing = this.sessions.get(sessionId);
+    if (existing && existing.sock && existing.status === 'connected') {
+      return { sessionId: sessionId, status: existing.status, phone: existing.phone };
+    }
+    if (existing && existing.sock && (existing.status === 'qr' || existing.status === 'pairing' || existing.status === 'init')) {
+      return { sessionId: sessionId, status: existing.status, phone: existing.phone };
+    }
+
+    // Relancer depuis Mongo (sans forceNew → garde les creds)
+    await this.startSession(sessionId, 'user', false);
+    const s = this.sessions.get(sessionId);
+    return {
+      sessionId: sessionId,
+      status: s ? s.status : 'init',
+      phone: s ? s.phone : null,
+    };
   }
 
   async createUserSession() {
