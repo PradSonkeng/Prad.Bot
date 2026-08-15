@@ -5,7 +5,7 @@
  *
  * Fonctionnement :
  * 1. Les messages (surtout vues uniques) sont mis en cache.
- * 2. Si quelqu'un réagit avec l'emoji configuré (défaut: 📥),
+ * 2. Si quelqu'un réagit avec l'emoji configuré (défaut: ❇️),
  *    le média est téléchargé et renvoyé UNIQUEMENT en privé
  *    à la personne qui a réagi — aucun message dans le chat d'origine.
  */
@@ -14,7 +14,7 @@ const logger = require('../utils/logger');
 const { downloadMedia, getMediaType } = require('../utils/mediaUtils');
 
 // Emoji déclencheur (changeable via .env VIEW_ONCE_EMOJI)
-const TRIGGER_EMOJI = process.env.VIEW_ONCE_EMOJI || '📥';
+const TRIGGER_EMOJI = process.env.VIEW_ONCE_EMOJI || '❇️';
 
 // Cache des messages récents (clé = remoteJid + messageId)
 const CACHE_MAX = 500;
