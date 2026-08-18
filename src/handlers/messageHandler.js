@@ -59,11 +59,22 @@ async function handleMessage(sock, msg) {
     logger.info(`[CMD] ${from} → ${bot.prefix}${commandName} ${args.join(' ')}`);
     console.log(`[CMD] ${from} → ${bot.prefix}${commandName} ${args.join(' ')}`);
     
-    // Persistance : activité session user
+    // Persistance : activité + stats session user
     if (sock.sessionId && sock.sessionType === 'user') {
+      const cmdKey = `stats.commandsByName.${commandName}`;
       Session.updateOne(
         { sessionId: sock.sessionId },
-        { $set: { lastSeen: new Date() } }
+        {
+          $set: {
+            lastSeen: new Date(),
+            'stats.lastCommand': commandName,
+            'stats.lastCommandAt': new Date(),
+          },
+          $inc: {
+            'stats.commandCount': 1,
+            [cmdKey]: 1,
+          },
+        }
       ).catch(() => {});
     }
 

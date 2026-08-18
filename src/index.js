@@ -15,6 +15,18 @@ const LOGS_DIR = path.join(__dirname, '../logs');
 });
 
 const manager = new SessionManager();
+const ADMIN_SECRET = process.env.ADMIN_SECRET || '';
+
+function requireAdmin(req, res, next) {
+  const key = (req.headers['x-admin-secret'] || req.query.key || (req.body && req.body.key) || '').trim();
+  if (!ADMIN_SECRET) {
+    return res.status(503).json({ error: 'ADMIN_SECRET non configuré côté serveur' });
+  }
+  if (key !== ADMIN_SECRET) {
+    return res.status(401).json({ error: 'Accès refusé' });
+  }
+  next();
+}
 
 function startWebServer() {
   const app = express();
@@ -23,14 +35,18 @@ function startWebServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // ── Page principale : session BOT ────────────────────────────────────────
+  // ── Page publiques ────────────────────────────────────────
   app.get('/', function (req, res) {
     res.send(pageHtml('main'));
   });
 
-  // ── Page utilisateurs : connecter mon WhatsApp ────────────────────────────
   app.get('/user', function (req, res) {
     res.send(pageHtml('user'));
+  });
+  
+   // ── Page admin (protégée côté client + API) ──────────────────────────────
+  app.get('/admin', function (req, res) {
+    res.send(adminPageHtml());
   });
 
   // État session main
@@ -125,22 +141,84 @@ function startWebServer() {
   // Supprimer une session user
   app.post('/user/remove', async function (req, res) {
     try {
-      await manager.removeSession(req.body.sessionId);
+      const sid = req.body.sessionId;
+      if (!sid) return res.status(400).json({ error: 'sessionId requis' });
+      if (sid === MAIN_SESSION_ID) return res.status(403).json({ error: 'Interdit' });
+      await manager.removeSession(sid);
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
+  
+  // ══════════════════════════════════════════════════════════════════════════
+  // API ADMIN (protégées par ADMIN_SECRET)
+  // ══════════════════════════════════════════════════════════════════════════
+  app.get('/admin/api/sessions', requireAdmin, async function (req, res) {
+    try {
+      const list = await manager.getAllDetailed();
+      res.json({ sessions: list, total: list.length });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  
+  app.post('/admin/api/session/active', requireAdmin, async function (req, res) {
+    try {
+      const { sessionId, active } = req.body;
+      if (!sessionId) return res.status(400).json({ error: 'sessionId requis' });
+      const result = await manager.setSessionActive(sessionId, !!active);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  
+  app.post('/admin/api/session/remove', requireAdmin, async function (req, res) {
+    try {
+      const { sessionId } = req.body;
+      if (!sessionId) return res.status(400).json({ error: 'sessionId requis' });
+      if (sessionId === MAIN_SESSION_ID) return res.status(403).json({ error: 'Impossible de supprimer la session principale' });
+      await manager.removeSession(sessionId);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  
+  app.get('/admin/api/stats', requireAdmin, async function (req, res) {
+    try {
+      const list = await manager.getAllDetailed();
+      const users = list.filter(s => s.type === 'user');
+      const totalCommands = users.reduce((a, s) => a + (s.stats.commandCount || 0), 0);
+      const connected = users.filter(s => s.connected).length;
+      const active = users.filter(s => s.active).length;
+      const registered = users.filter(s => s.registered).length;
+      res.json({
+        totalSessions: list.length,
+        userSessions: users.length,
+        mainConnected: !!(list.find(s => s.type === 'main') || {}).connected,
+        usersConnected: connected,
+        usersActive: active,
+        usersRegistered: registered,
+        totalCommands,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
+  
   app.listen(PORT, function () {
     console.log('');
     console.log('╔══════════════════════════════════════════════════╗');
     console.log('║  Bot principal : http://localhost:' + PORT + '          ║');
     console.log('║  Connexion user : http://localhost:' + PORT + '/user   ║');
+    console.log('║  Admin panel    : http://localhost:' + PORT + '/admin  ║');
     console.log('╚══════════════════════════════════════════════════╝');
     console.log('');
   });
-
+  
   const APP_URL = process.env.APP_URL || '';
   if (APP_URL) {
     setInterval(async function () {
@@ -149,14 +227,29 @@ function startWebServer() {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// PAGE USER / MAIN
+// ════════════════════════════════════════════════════════════════════════════
+
 function pageHtml(mode) {
   var isUser = mode === 'user';
   var sub = isUser
     ? 'Connecte <b>ton</b> WhatsApp. Tes chats restent normaux.'
     : 'Session principale du bot<br/><a class="link" href="/user">Connexion utilisateur</a>';
-  var okMsg = isUser ? 'WhatsApp connecte !' : 'Bot connecte !';
-  var resetBtn = isUser ? '' : '<button class="btn btn-danger" onclick="forceReset()" style="margin-top:16px">Forcer nouvelle session</button>';
-  
+  var okMsg = isUser ? 'WhatsApp connecté !' : 'Bot connecté !';
+
+  // Boutons spécifiques user (nouvelle connexion + déconnecter)
+  var userActions = isUser
+    ? '<div id="user-actions" style="display:none;width:100%;margin-top:16px;gap:8px;flex-direction:column">' +
+      '<button class="btn btn-primary" onclick="newConnection()">Nouvelle connexion</button>' +
+      '<button class="btn btn-danger" onclick="disconnectSession()">Déconnecter cette session</button>' +
+      '</div>'
+    : '';
+
+  var resetBtn = isUser
+    ? ''
+    : '<button class="btn btn-danger" onclick="forceReset()" style="margin-top:16px">Forcer nouvelle session</button>';
+
   return '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/>' +
     '<meta name="viewport" content="width=device-width, initial-scale=1.0"/>' +
     '<title>' + bot.name + '</title>' +
@@ -175,6 +268,7 @@ function pageHtml(mode) {
     '.btn{margin-top:8px;padding:11px 18px;border-radius:10px;border:none;font-size:13px;font-weight:600;cursor:pointer;width:100%}' +
     '.btn-danger{background:#dc2626;color:#fff}' +
     '.btn-primary{background:#25d366;color:#000}' +
+    '.btn-outline{background:transparent;border:1px solid #333;color:#aaa}' +
     '.code-display{font-size:28px;font-weight:800;letter-spacing:5px;color:#25d366;background:#0d1f0d;padding:16px;border-radius:14px;border:2px dashed #25d366;font-family:monospace}' +
     'input[type=text]{width:100%;padding:12px;border-radius:10px;border:1px solid #333;background:#1a1a1a;color:#fff;font-size:15px;text-align:center}' +
     '.tabs{display:flex;gap:8px;width:100%;margin-bottom:8px}' +
@@ -188,7 +282,7 @@ function pageHtml(mode) {
     '<h1>' + bot.name + '</h1>' +
     '<p class="sub">' + sub + '</p>' +
     '<div id="waiting" class="box" style="display:flex"><div class="spinner"></div>' +
-    '<p style="color:#555;font-size:14px" id="wait-text">Preparation...</p>' +
+    '<p style="color:#555;font-size:14px" id="wait-text">Préparation...</p>' +
     '<p style="color:#444;font-size:11px" id="wait-debug"></p></div>' +
     '<div id="auth-box" class="box">' +
     '<div class="tabs">' +
@@ -196,12 +290,12 @@ function pageHtml(mode) {
     '<button class="tab" id="tab-pair" onclick="switchTab(\'pair\')">Code Pairing</button>' +
     '</div>' +
     '<div id="panel-qr"><img id="qr-img" src="" alt="QR"/>' +
-    '<div class="instructions"><span>1.</span> WhatsApp - Appareils lies<br/>' +
+    '<div class="instructions"><span>1.</span> WhatsApp → Appareils liés<br/>' +
     '<span>2.</span> Lier un appareil<br/><span>3.</span> Scannez</div></div>' +
     '<div id="panel-pair" style="display:none;width:100%">' +
-    '<div id="pair-form"><p style="color:#aaa;font-size:13px;margin-bottom:10px">Numero (indicatif, sans +)</p>' +
+    '<div id="pair-form"><p style="color:#aaa;font-size:13px;margin-bottom:10px">Numéro (indicatif, sans +)</p>' +
     '<input type="text" id="phone-input" placeholder="ex: 237612345678"/>' +
-    '<button class="btn btn-primary" onclick="requestPairing()" style="margin-top:12px">Generer le code</button></div>' +
+    '<button class="btn btn-primary" onclick="requestPairing()" style="margin-top:12px">Générer le code</button></div>' +
     '<div id="pair-result" style="display:none"><p style="color:#aaa;font-size:13px">Code WhatsApp :</p>' +
     '<div class="code-display" id="pair-code">----</div></div></div>' +
     resetBtn +
@@ -209,13 +303,17 @@ function pageHtml(mode) {
     '<div id="connected-box" class="box"><div class="check">OK</div>' +
     '<p style="font-size:18px;font-weight:700;color:#25d366">' + okMsg + '</p>' +
     '<p style="font-size:13px;color:#666" id="phone-label"></p>' +
-    '<span class="badge">En ligne</span></div>' +
+    '<span class="badge">En ligne</span>' +
+    userActions +
+    '</div>' +
     '<div id="error-box" class="box"><p class="err" id="error-text">Erreur</p>' +
-    '<button class="btn btn-danger" onclick="forceReset()">Reessayer</button></div>' +
+    '<button class="btn btn-danger" onclick="forceReset()">Réessayer</button></div>' +
     '</div><script>' +
     'var MODE="' + mode + '";var sessionId=null;var pollCount=0;' +
     'function show(id){["waiting","auth-box","connected-box","error-box"].forEach(function(x){' +
-    'document.getElementById(x).style.display=(x===id)?"flex":"none";});}' +
+    'document.getElementById(x).style.display=(x===id)?"flex":"none";});' +
+    'var ua=document.getElementById("user-actions");' +
+    'if(ua)ua.style.display=(id==="connected-box"&&MODE==="user")?"flex":"none";}' +
     'function switchTab(tab){' +
     'document.getElementById("tab-qr").classList.toggle("active",tab==="qr");' +
     'document.getElementById("tab-pair").classList.toggle("active",tab==="pair");' +
@@ -223,10 +321,28 @@ function pageHtml(mode) {
     'document.getElementById("panel-pair").style.display=tab==="pair"?"block":"none";}' +
     'async function forceReset(){if(!confirm("Nouvelle session ?"))return;' +
     'await fetch("/reset-session",{method:"POST"});show("waiting");}' +
+    // Nouvelle connexion user : efface localStorage + crée une nouvelle session
+    'async function newConnection(){' +
+    'if(!confirm("Creer une NOUVELLE connexion ? La session actuelle restera active cote serveur jusqu a suppression admin."))return;' +
+    'localStorage.removeItem("prad_user_session");' +
+    'sessionId=null;' +
+    'show("waiting");' +
+    'await ensureUserSession(true);' +
+    '}' +
+    // Déconnecter = supprimer la session serveur + localStorage
+    'async function disconnectSession(){' +
+    'if(!sessionId){alert("Aucune session");return;}' +
+    'if(!confirm("Déconnecter et supprimer cette session ?"))return;' +
+    'try{await fetch("/user/remove",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:sessionId})});}catch(e){}' +
+    'localStorage.removeItem("prad_user_session");' +
+    'sessionId=null;' +
+    'show("waiting");' +
+    'await ensureUserSession(true);' +
+    '}' +
     'async function requestPairing(){' +
     'var phone=document.getElementById("phone-input").value.replace(/\\D/g,"");' +
-    'if(phone.length<10){alert("Numero invalide");return;}' +
-    'if(MODE==="user"&&!sessionId){alert("Session pas prete");return;}' +
+    'if(phone.length<10){alert("Numéro invalide");return;}' +
+    'if(MODE==="user"&&!sessionId){alert("Session pas prête");return;}' +
     'var body={phone:phone};if(MODE==="user")body.sessionId=sessionId;' +
     'var res=await fetch("/request-pairing",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});' +
     'var data=await res.json();' +
@@ -234,10 +350,12 @@ function pageHtml(mode) {
     'document.getElementById("pair-form").style.display="none";' +
     'document.getElementById("pair-result").style.display="block";}' +
     'else alert(data.error||"Erreur");}' +
-    'async function ensureUserSession(){' +
-    'if(MODE!=="user"||sessionId)return;' +
+    'async function ensureUserSession(forceNew){' +
+    'if(MODE!=="user")return;' +
+    'if(forceNew){sessionId=null;localStorage.removeItem("prad_user_session");}' +
+    'if(sessionId)return;' +
     'var saved=localStorage.getItem("prad_user_session");' +
-    'if(saved){try{' +
+    'if(saved&&!forceNew){try{' +
     'var res=await fetch("/user/resume",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:saved})});' +
     'var data=await res.json();' +
     'if(res.ok&&data.sessionId){sessionId=data.sessionId;localStorage.setItem("prad_user_session",sessionId);return;}' +
@@ -246,7 +364,7 @@ function pageHtml(mode) {
     'var data2=await res2.json();sessionId=data2.sessionId;' +
     'if(sessionId)localStorage.setItem("prad_user_session",sessionId);}' +
     'async function poll(){pollCount++;try{' +
-    'if(MODE==="user")await ensureUserSession();' +
+    'if(MODE==="user")await ensureUserSession(false);' +
     'var url=MODE==="user"?("/status/"+sessionId):"/status";' +
     'var res=await fetch(url);if(!res.ok)throw new Error("HTTP "+res.status);' +
     'var data=await res.json();' +
@@ -264,16 +382,313 @@ function pageHtml(mode) {
     'show("error-box");document.getElementById("error-text").textContent=data.lastError||"Erreur de session";}' +
     'else{show("waiting");var w=document.getElementById("wait-text");' +
     'if(w)w.textContent=pollCount<5?"Connexion WhatsApp...":"En attente ("+(data.status||"init")+")";}' +
-    '}catch(e){show("waiting");var w=document.getElementById("wait-text");if(w)w.textContent="Erreur reseau";' +
+    '}catch(e){show("waiting");var w=document.getElementById("wait-text");if(w)w.textContent="Erreur réseau";' +
     'var d=document.getElementById("wait-debug");if(d)d.textContent=String(e.message||e);}' +
     'setTimeout(poll,2000);}poll();' +
     '</script></body></html>';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// PAGE ADMIN
+// ════════════════════════════════════════════════════════════════════════════
+
+function adminPageHtml() {
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>${bot.name} — Admin</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;background:#0a0a0a;font-family:system-ui,-apple-system,sans-serif;color:#e5e5e5}
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-card{background:#111;border:1px solid #222;border-radius:20px;padding:36px 28px;max-width:380px;width:100%;text-align:center}
+.login-card h1{color:#25d366;font-size:22px;margin-bottom:6px}
+.login-card p{color:#666;font-size:13px;margin-bottom:20px}
+.login-card input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #333;background:#1a1a1a;color:#fff;font-size:15px;margin-bottom:12px}
+.login-card button{width:100%;padding:12px;border:none;border-radius:10px;background:#25d366;color:#000;font-weight:700;font-size:14px;cursor:pointer}
+.err{color:#f87171;font-size:12px;margin-top:10px}
+.header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid #1a1a1a;background:#0d0d0d;position:sticky;top:0;z-index:10}
+.header h1{font-size:18px;color:#25d366}
+.header .meta{font-size:12px;color:#666}
+.btn{padding:8px 14px;border-radius:8px;border:none;font-size:12px;font-weight:600;cursor:pointer}
+.btn-sm{padding:6px 10px;font-size:11px}
+.btn-green{background:#25d366;color:#000}
+.btn-red{background:#dc2626;color:#fff}
+.btn-yellow{background:#ca8a04;color:#000}
+.btn-gray{background:#333;color:#ccc}
+.btn-outline{background:transparent;border:1px solid #333;color:#aaa}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;padding:20px 24px}
+.stat{background:#111;border:1px solid #1f1f1f;border-radius:14px;padding:16px}
+.stat .label{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px}
+.stat .value{font-size:24px;font-weight:700;color:#25d366;margin-top:4px}
+.toolbar{padding:0 24px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.toolbar input{flex:1;min-width:180px;padding:10px 12px;border-radius:10px;border:1px solid #333;background:#1a1a1a;color:#fff;font-size:13px}
+.table-wrap{padding:0 24px 40px;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 12px;color:#666;font-weight:600;border-bottom:1px solid #1a1a1a;white-space:nowrap}
+td{padding:12px;border-bottom:1px solid #141414;vertical-align:middle}
+tr:hover td{background:#0f0f0f}
+.badge{display:inline-block;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-on{background:#0d2818;color:#25d366;border:1px solid #1a3d28}
+.badge-off{background:#1f1212;color:#f87171;border:1px solid #3d1a1a}
+.badge-warn{background:#2a2108;color:#fbbf24;border:1px solid #3d320a}
+.badge-gray{background:#1a1a1a;color:#888;border:1px solid #333}
+.phone{font-family:ui-monospace,monospace;color:#a3e635}
+.sid{font-family:ui-monospace,monospace;font-size:11px;color:#666;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+.cmds{font-size:12px;color:#aaa}
+.hidden{display:none!important}
+.detail{font-size:11px;color:#555;margin-top:2px}
+@media(max-width:700px){
+  .stats{grid-template-columns:1fr 1fr}
+  th:nth-child(3),td:nth-child(3){display:none}
+}
+</style>
+</head>
+<body>
+
+<div id="login" class="login-wrap">
+  <div class="login-card">
+    <h1>${bot.name}</h1>
+    <p>Panneau d'administration — accès restreint</p>
+    <input type="password" id="secret-input" placeholder="ADMIN_SECRET" autocomplete="off"/>
+    <button onclick="doLogin()">Entrer</button>
+    <p class="err" id="login-err"></p>
+  </div>
+</div>
+
+<div id="dashboard" class="hidden">
+  <div class="header">
+    <div>
+      <h1>${bot.name} Admin</h1>
+      <div class="meta" id="last-refresh">—</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-outline btn-sm" onclick="loadAll()">Rafraîchir</button>
+      <button class="btn btn-gray btn-sm" onclick="doLogout()">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="stats" id="stats-bar">
+    <div class="stat"><div class="label">Sessions user</div><div class="value" id="s-users">—</div></div>
+    <div class="stat"><div class="label">Connectées</div><div class="value" id="s-connected">—</div></div>
+    <div class="stat"><div class="label">Actives</div><div class="value" id="s-active">—</div></div>
+    <div class="stat"><div class="label">Commandes</div><div class="value" id="s-cmds">—</div></div>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="search" placeholder="Filtrer par téléphone, sessionId, nom..." oninput="renderTable()"/>
+    <button class="btn btn-outline btn-sm" onclick="filterMode='all';renderTable()">Tous</button>
+    <button class="btn btn-outline btn-sm" onclick="filterMode='connected';renderTable()">Connectés</button>
+    <button class="btn btn-outline btn-sm" onclick="filterMode='active';renderTable()">Actifs</button>
+    <button class="btn btn-outline btn-sm" onclick="filterMode='inactive';renderTable()">Inactifs</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Téléphone / Nom</th>
+          <th>Session</th>
+          <th>Statut</th>
+          <th>Actif</th>
+          <th>Stats</th>
+          <th>Dernière activité</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+var SECRET = sessionStorage.getItem('prad_admin_secret') || '';
+var sessions = [];
+var filterMode = 'all';
+
+function headers() {
+  return { 'Content-Type': 'application/json', 'x-admin-secret': SECRET };
+}
+
+async function doLogin() {
+  var key = document.getElementById('secret-input').value.trim();
+  if (!key) return;
+  SECRET = key;
+  try {
+    var res = await fetch('/admin/api/stats', { headers: headers() });
+    if (!res.ok) {
+      var d = await res.json().catch(function(){return {};});
+      document.getElementById('login-err').textContent = d.error || 'Accès refusé';
+      SECRET = '';
+      return;
+    }
+    sessionStorage.setItem('prad_admin_secret', SECRET);
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+    loadAll();
+    setInterval(loadAll, 15000);
+  } catch (e) {
+    document.getElementById('login-err').textContent = 'Erreur réseau';
+  }
+}
+
+function doLogout() {
+  sessionStorage.removeItem('prad_admin_secret');
+  SECRET = '';
+  location.reload();
+}
+
+async function loadAll() {
+  try {
+    var [r1, r2] = await Promise.all([
+      fetch('/admin/api/sessions', { headers: headers() }),
+      fetch('/admin/api/stats', { headers: headers() })
+    ]);
+    if (!r1.ok || !r2.ok) {
+      if (r1.status === 401 || r2.status === 401) { doLogout(); return; }
+      return;
+    }
+    var data = await r1.json();
+    var stats = await r2.json();
+    sessions = data.sessions || [];
+    document.getElementById('s-users').textContent = stats.userSessions;
+    document.getElementById('s-connected').textContent = stats.usersConnected;
+    document.getElementById('s-active').textContent = stats.usersActive;
+    document.getElementById('s-cmds').textContent = stats.totalCommands;
+    document.getElementById('last-refresh').textContent = 'MAJ ' + new Date().toLocaleTimeString('fr-FR');
+    renderTable();
+  } catch (e) {}
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  try { return new Date(d).toLocaleString('fr-FR'); } catch(e) { return '—'; }
+}
+
+function topCmds(byName) {
+  if (!byName || typeof byName !== 'object') return '';
+  var entries = Object.entries(byName).sort(function(a,b){ return b[1]-a[1]; }).slice(0,3);
+  if (!entries.length) return '';
+  return entries.map(function(e){ return e[0]+'×'+e[1]; }).join(', ');
+}
+
+function renderTable() {
+  var q = (document.getElementById('search').value || '').toLowerCase().trim();
+  var list = sessions.filter(function(s) {
+    if (filterMode === 'connected' && !s.connected) return false;
+    if (filterMode === 'active' && !s.active) return false;
+    if (filterMode === 'inactive' && s.active) return false;
+    if (!q) return true;
+    var hay = [s.sessionId, s.phone, s.pushName, s.type, s.status].join(' ').toLowerCase();
+    return hay.indexOf(q) !== -1;
+  });
+
+  var tbody = document.getElementById('tbody');
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#555;padding:30px">Aucune session</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = list.map(function(s) {
+    var statusBadge = s.connected
+      ? '<span class="badge badge-on">connecté</span>'
+      : (s.status === 'qr' || s.status === 'pairing' || s.status === 'init'
+          ? '<span class="badge badge-warn">'+(s.status||'?')+'</span>'
+          : '<span class="badge badge-gray">'+(s.status||'offline')+'</span>');
+    var activeBadge = s.active
+      ? '<span class="badge badge-on">oui</span>'
+      : '<span class="badge badge-off">non</span>';
+    var phone = s.phone ? '<span class="phone">+'+s.phone+'</span>' : '<span style="color:#555">—</span>';
+    var name = s.pushName ? '<div class="detail">'+esc(s.pushName)+'</div>' : '';
+    var cmds = (s.stats && s.stats.commandCount) || 0;
+    var lastCmd = (s.stats && s.stats.lastCommand) ? s.stats.lastCommand : '—';
+    var top = topCmds(s.stats && s.stats.commandsByName);
+    var isMain = s.type === 'main';
+    var actions = '';
+    if (!isMain) {
+      if (s.active) {
+        actions += '<button class="btn btn-yellow btn-sm" onclick="toggleActive(\\''+s.sessionId+'\\',false)">Désactiver</button>';
+      } else {
+        actions += '<button class="btn btn-green btn-sm" onclick="toggleActive(\\''+s.sessionId+'\\',true)">Activer</button>';
+      }
+      actions += '<button class="btn btn-red btn-sm" onclick="removeSession(\\''+s.sessionId+'\\')">Supprimer</button>';
+    } else {
+      actions = '<span style="color:#555;font-size:11px">protégée</span>';
+    }
+    return '<tr>' +
+      '<td><span class="badge '+(isMain?'badge-on':'badge-gray')+'">'+s.type+'</span></td>' +
+      '<td>'+phone+name+'</td>' +
+      '<td><div class="sid" title="'+esc(s.sessionId)+'">'+esc(s.sessionId)+'</div></td>' +
+      '<td>'+statusBadge+'</td>' +
+      '<td>'+activeBadge+'</td>' +
+      '<td class="cmds"><b>'+cmds+'</b> cmd'+(cmds>1?'s':'')+'<div class="detail">dernier: '+esc(lastCmd)+'</div>'+(top?'<div class="detail">'+esc(top)+'</div>':'')+'</td>' +
+      '<td style="font-size:12px;color:#888">'+fmtDate(s.lastSeen)+'</td>' +
+      '<td><div class="actions">'+actions+'</div></td>' +
+      '</tr>';
+  }).join('');
+}
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function toggleActive(sessionId, active) {
+  var msg = active ? 'Réactiver cette session ?' : 'Désactiver cette session ? (le socket sera fermé, les creds restent)';
+  if (!confirm(msg)) return;
+  try {
+    var res = await fetch('/admin/api/session/active', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ sessionId: sessionId, active: active })
+    });
+    var data = await res.json();
+    if (!res.ok) alert(data.error || 'Erreur');
+    else loadAll();
+  } catch (e) { alert('Erreur réseau'); }
+}
+
+async function removeSession(sessionId) {
+  if (!confirm('SUPPRIMER définitivement cette session (creds inclus) ?')) return;
+  try {
+    var res = await fetch('/admin/api/session/remove', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ sessionId: sessionId })
+    });
+    var data = await res.json();
+    if (!res.ok) alert(data.error || 'Erreur');
+    else loadAll();
+  } catch (e) { alert('Erreur réseau'); }
+}
+
+// Auto-login si secret déjà en session
+if (SECRET) {
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('dashboard').classList.remove('hidden');
+  loadAll();
+  setInterval(loadAll, 15000);
+}
+
+document.getElementById('secret-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+</script>
+</body>
+</html>`;
 }
 
 async function main() {
   console.log('[BOOT] starting...');
   await connectDB();
   console.log('[BOOT] MongoDB OK');
+  if (!ADMIN_SECRET) {
+    console.warn('[WARN] ADMIN_SECRET non défini — le panneau /admin sera inaccessible');
+  }
   startWebServer();
   console.log('[BOOT] web server started');
   await manager.init();

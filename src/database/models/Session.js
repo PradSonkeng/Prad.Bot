@@ -36,10 +36,17 @@ const SessionSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
-  // Actif / désactivé par l'owner
   active: {
     type: Boolean,
     default: true,
+    index: true,
+  },
+  stats: {
+    commandCount:   { type: Number, default: 0 },
+    messageCount:   { type: Number, default: 0 },
+    lastCommand:    { type: String, default: null },
+    lastCommandAt:  { type: Date,   default: null },
+    commandsByName: { type: Map, of: Number, default: {} },
   },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },

@@ -65,6 +65,7 @@ class SessionManager {
     const users = await listSessions({ type: 'user', registered: true, active: true });
     for (const u of users) {
       if (u.sessionId === MAIN_SESSION_ID) continue;
+      if (u.active === false) continue;
       logger.info('Restauration session user: ' + u.sessionId + ' (' + (u.phone || '?') + ')');
       await this.startSession(u.sessionId, 'user');
     }
@@ -134,6 +135,96 @@ class SessionManager {
       });
     }
     return result;
+  }
+
+  /**
+   * Liste enrichie (mémoire + Mongo) pour le panneau admin.
+   */
+  async getAllDetailed() {
+    const { listSessions } = require('../utils/sessionStore');
+    const docs = await listSessions({});
+    const result = [];
+
+    for (const doc of docs) {
+      const mem = this.sessions.get(doc.sessionId);
+      result.push({
+        sessionId:   doc.sessionId,
+        type:        doc.type || 'user',
+        phone:       doc.phone || (mem && mem.phone) || null,
+        pushName:    doc.pushName || null,
+        registered:  !!doc.registered,
+        active:      doc.active !== false,
+        status:      mem ? mem.status : (doc.registered ? 'offline' : 'never'),
+        connected:   !!(mem && mem.status === 'connected'),
+        lastError:   mem ? (mem.lastError || null) : null,
+        createdAt:   doc.createdAt || null,
+        updatedAt:   doc.updatedAt || null,
+        lastSeen:    doc.lastSeen || null,
+        stats: {
+          commandCount:  (doc.stats && doc.stats.commandCount)  || 0,
+          messageCount:  (doc.stats && doc.stats.messageCount)  || 0,
+          lastCommand:   (doc.stats && doc.stats.lastCommand)   || null,
+          lastCommandAt: (doc.stats && doc.stats.lastCommandAt) || null,
+          commandsByName: (doc.stats && doc.stats.commandsByName)
+            ? (doc.stats.commandsByName instanceof Map
+                ? Object.fromEntries(doc.stats.commandsByName)
+                : doc.stats.commandsByName)
+            : {},
+        },
+      });
+    }
+
+    for (const [id, s] of this.sessions) {
+      if (!result.find(r => r.sessionId === id)) {
+        result.push({
+          sessionId: id,
+          type: s.type,
+          phone: s.phone || null,
+          pushName: null,
+          registered: s.status === 'connected',
+          active: true,
+          status: s.status,
+          connected: s.status === 'connected',
+          lastError: s.lastError || null,
+          createdAt: null,
+          updatedAt: null,
+          lastSeen: null,
+          stats: { commandCount: 0, messageCount: 0, lastCommand: null, lastCommandAt: null, commandsByName: {} },
+        });
+      }
+    }
+
+    return result.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'main' ? -1 : 1;
+      return (b.lastSeen ? new Date(b.lastSeen).getTime() : 0) - (a.lastSeen ? new Date(a.lastSeen).getTime() : 0);
+    });
+  }
+
+  /**
+   * Active ou désactive une session user (sans supprimer les creds).
+   */
+  async setSessionActive(sessionId, active) {
+    if (sessionId === MAIN_SESSION_ID) {
+      throw new Error('Impossible de désactiver la session principale');
+    }
+    const { updateSessionMeta } = require('../utils/sessionStore');
+    await updateSessionMeta(sessionId, { active: !!active });
+
+    if (!active) {
+      const entry = this.sessions.get(sessionId);
+      if (entry && entry.sock) {
+        try {
+          entry.sock.ev.removeAllListeners();
+          entry.sock.end(undefined);
+        } catch (_) {}
+      }
+      this.sessions.delete(sessionId);
+      clearTimeout(this._restartTimers.get(sessionId));
+      return { sessionId, active: false };
+    }
+
+    await this.startSession(sessionId, 'user', false);
+    return { sessionId, active: true };
   }
 
   async startSession(sessionId, type, forceNew) {
@@ -344,6 +435,13 @@ class SessionManager {
   async resumeSession(sessionId) {
     if (!sessionId) throw new Error('sessionId requis');
     if (sessionId === MAIN_SESSION_ID) throw new Error('Session principale interdite ici');
+
+    // Si désactivée côté admin → refuser le resume
+    const { getSession } = require('../utils/sessionStore');
+    const doc = await getSession(sessionId);
+    if (doc && doc.active === false) {
+      throw new Error('Session désactivée par l\'administrateur');
+    }
 
     const existing = this.sessions.get(sessionId);
     if (existing && existing.sock && existing.status === 'connected') {
