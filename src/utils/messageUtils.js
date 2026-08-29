@@ -21,11 +21,15 @@ async function sendVideo(sock, jid, buffer, caption = '') {
 
 /**
  * Envoie un sticker.
- * options: { gifPlayback: boolean }
+ * options: { gifPlayback: boolean , isAnimated: boolean }
  */
 async function sendSticker(sock, jid, buffer, options = {}) {
   // Ensure mimetype for webp so animated webp stickers are recognized correctly
   const msg = { sticker: buffer, mimetype: 'image/webp' };
+  // Flag animation pour clients WhatsApp / Baileys
+  if (options.isAnimated || options.gifPlayback) {
+    msg.isAnimated = true;
+  }
   if (options.gifPlayback) msg.gifPlayback = true;
   return sock.sendMessage(jid, msg);
 }

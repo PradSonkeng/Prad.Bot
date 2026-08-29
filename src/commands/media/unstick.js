@@ -1,10 +1,10 @@
-const { downloadMedia, getMediaType } = require('../../utils/mediaUtils');
-const { sendText, sendImage }          = require('../../utils/messageUtils');
+const { downloadMedia, getMediaType, isAnimatedWebp, stickerToVideo, } = require('../../utils/mediaUtils');
+const { sendText, sendImage, sendVideo }          = require('../../utils/messageUtils');
 
 module.exports = {
   name: 'unstick',
-  aliases: ['desticker', 'toimage'],
-  description: 'Convertit un sticker en image',
+  aliases: ['desticker', 'toimage', 'tovideo'],
+  description: 'Convertit un sticker en image ou en vidéo (si animé)',
   category: 'media',
 
   async execute({ sock, jid, msg }) {
@@ -18,7 +18,17 @@ module.exports = {
 
     await sendText(sock, jid, '⏳ Conversion en cours...');
     const buffer = await downloadMedia(sock, targetMsg);
-    // Les stickers WebP sont directement utilisables comme images
+    const animated = mediaInfo.isAnimated || isAnimatedWebp(buffer);
+
+    if (animated) {
+      const video = await stickerToVideo(buffer);
+      if (video) {
+        return sendVideo(sock, jid, video, '✅ Sticker animé converti en vidéo.');
+      }
+      // Fallback image si ffmpeg échoue
+      return sendImage(sock, jid, buffer, '⚠️ Conversion vidéo impossible — envoi en image (WebP).');
+    }
+
     await sendImage(sock, jid, buffer, '✅ Sticker converti en image.');
   },
 };

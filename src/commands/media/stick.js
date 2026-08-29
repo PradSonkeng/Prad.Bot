@@ -1,6 +1,6 @@
 'use strict';
 
-const { downloadMedia, getMediaType, imageToSticker, videoToSticker }
+const { downloadMedia, getMediaType, imageToSticker, videoToSticker, isAnimatedWebp }
                                      = require('../../utils/mediaUtils');
 const { sendText, sendSticker }      = require('../../utils/messageUtils');
 
@@ -22,23 +22,19 @@ module.exports = {
     await sendText(sock, jid, '⏳ Création du sticker...');
 
     const buffer = await downloadMedia(sock, targetMsg);
-    let sticker;
 
     if (mediaInfo.type === 'video') {
       sticker = await videoToSticker(buffer);
       if (!sticker) {
         return sendText(sock, jid,
-          '❌ Conversion vidéo impossible.\n' +
-          '💡 Installez ffmpeg : https://ffmpeg.org/download.html\n' +
-          'Puis ajoutez-le au PATH Windows et relancez le bot.'
+          '❌ Conversion vidéo impossible.\n'
         );
       }
-      // Send video as animated sticker (WebP with gifPlayback)
-      return sendSticker(sock, jid, sticker, { gifPlayback: true });
+      const animated = isAnimatedWebp(sticker);
+      // isAnimated aide WhatsApp/Baileys à traiter le WebP multi-frames
+      return sendSticker(sock, jid, sticker, { isAnimated: animated, gifPlayback: animated });
     }
-    // image path
-    sticker = await imageToSticker(buffer);
-
-    await sendSticker(sock, jid, sticker);
+    const sticker = await imageToSticker(buffer);
+    await sendSticker(sock, jid, sticker, { isAnimated: false });
   },
 };

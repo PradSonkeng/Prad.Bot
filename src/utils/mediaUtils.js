@@ -26,6 +26,28 @@ try {
   logger.warn('ffprobe not found via @ffprobe-installer/ffprobe; ffprobe-based checks will fail unless ffprobe is available on PATH');
 }
 
+function configureFfmpeg(ffmpeg) {
+  if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
+  if (ffprobePath) {
+    try { ffmpeg.setFfprobePath(ffprobePath); } catch (_) {}
+  }
+}
+
+/**
+ * WebP animé si le fichier contient un chunk ANIM (ou ANMF).
+ */
+function isAnimatedWebp(buffer) {
+  if (!buffer || buffer.length < 16) return false;
+  // RIFF....WEBP
+  if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WEBP') {
+    return false;
+  }
+  // Cherche "ANIM" ou "ANMF" dans les premiers ~64 Ko
+  const slice = buffer.subarray(0, Math.min(buffer.length, 65536));
+  const str = slice.toString('binary');
+  return str.includes('ANIM') || str.includes('ANMF');
+}
+
 /**
  * Convertit une image en sticker WebP statique.
  */
@@ -49,187 +71,161 @@ async function videoToSticker(buffer) {
     const WATCHDOG_MS = 120000; // 2 minutes watchdog
     let watchdog = null;
 
-    function setWatchdog() {
+    const done = (val) => {
+      if (resolved) return;
+      resolved = true;
+      if (watchdog) clearTimeout(watchdog);
+      resolve(val);
+    };
+
+    const resetWatchdog = () => {
       if (watchdog) clearTimeout(watchdog);
       watchdog = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          const logger = require('./logger');
-          logger.error('videoToSticker: ffmpeg watchdog timeout after 120s');
-          resolve(null);
-        }
+        logger.error('videoToSticker: ffmpeg watchdog timeout after 120s');
+        done(null);
       }, WATCHDOG_MS);
-    }
+    };
 
     try {
       const ffmpeg = require('fluent-ffmpeg');
-      const logger = require('./logger');
+      configureFfmpeg(ffmpeg);
       
-      // Use detected ffmpeg path or let fluent-ffmpeg find it
-      if (ffmpegPath) {
-        logger.info({ ffmpegPath }, 'setting ffmpeg path');
-        ffmpeg.setFfmpegPath(ffmpegPath);
-      } else {
-        logger.warn('no ffmpeg path configured, using system PATH');
-      }
-      if (ffprobePath) {
-        try {
-          ffmpeg.setFfprobePath(ffprobePath);
-          logger.info({ ffprobePath }, 'set ffprobe path for fluent-ffmpeg');
-        } catch (e) {
-          logger.warn({ err: e && e.message }, 'failed to set ffprobe path on fluent-ffmpeg');
-        }
-      }
-
-      const tmpIn  = path.join(paths.temp, `in_${Date.now()}.mp4`);
-      const tmpOut = path.join(paths.temp, `out_${Date.now()}.webp`);
-
-      logger.info({ tmpIn, tmpOut }, 'videoToSticker: writing input file');
+      const id = Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      const tmpIn  = path.join(paths.temp, `vin_${id}.mp4`);
+      const tmpOut = path.join(paths.temp, `vout_${id}.webp`);
+      
       fs.writeFileSync(tmpIn, buffer);
+      resetWatchdog();
+      
+      // Pipeline fiable pour WebP animé WhatsApp :
+      // - fps 15, max 30s, 512x512, loop infini, sans audio
+      // - libwebp + yuva420p pour transparence éventuelle
+      const run = (outPath, extraVf) => new Promise((res, rej) => {
+        const vf = extraVf ||
+          'fps=15,scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,setsar=1';
 
-      logger.info({ tmpIn, tmpOut }, 'videoToSticker: starting ffmpeg conversion');
+        ffmpeg(tmpIn)
+          .inputOptions(['-t', '30'])
+          .outputOptions([
+            '-y',
+            '-vf', vf,
+            '-vcodec', 'libwebp',
+            '-lossless', '0',
+            '-compression_level', '6',
+            '-q:v', '60',
+            '-loop', '0',
+            '-an',
+            '-vsync', '0',
+            '-pix_fmt', 'yuva420p',
+          ])
+          .toFormat('webp')
+          .on('start', (cmd) => {
+            logger.info({ cmd }, 'videoToSticker: ffmpeg start');
+            resetWatchdog();
+          })
+          .on('progress', () => resetWatchdog())
+          .on('end', () => res())
+          .on('error', (err) => rej(err))
+          .save(outPath);
+      });
+      
+      (async () => {
+        try {
+          await run(tmpOut);
 
-      // prime watchdog before starting
-      setWatchdog();
+          if (!fs.existsSync(tmpOut)) throw new Error('output missing');
+          let result = fs.readFileSync(tmpOut);
 
-      ffmpeg(tmpIn)
-        .outputOptions([
-          '-y',  // Overwrite output file without asking
-          '-vcodec', 'libwebp',
-          // Use fps and scaling, keep alpha, pad to 512x512
-          '-vf',     'scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=white@0.0',
-          // quality / compression options for animated webp
-          '-lossless', '0',
-          '-qscale', '75',
-          '-compression_level', '6',
-          '-pix_fmt', 'yuva420p',
-          '-loop',   '0',
-          '-preset', 'default',
-          '-an',
-          '-vsync', '0',
-          '-t',     '00:00:07',  // max 7 secondes
-        ])
-        .on('codecData', (data) => {
-          logger.info({ codecData: data }, 'videoToSticker: codec data received');
-          setWatchdog();
-        })
-        .toFormat('webp')
-        .save(tmpOut)
-        .on('start', (cmd) => {
-          logger.info({ cmd }, 'videoToSticker: ffmpeg process started');
-          setWatchdog();
-        })
-        .on('progress', (progress) => {
-          logger.info({ 
-            frames: progress.frames,
-            currentFps: progress.currentFps,
-            currentKbps: progress.currentKbps,
-            targetSize: progress.targetSize,
-            timemark: progress.timemark
-          }, 'videoToSticker: ffmpeg progress');
-          // reset watchdog on progress so we only time out on stalls
-          setWatchdog();
-        })
-        .on('end', () => {
-          if (watchdog) clearTimeout(watchdog);
-          if (resolved) return;
-          resolved = true;
-
-          (async () => {
+          // Si pas animé → 2e essai avec filtre plus simple
+          if (!isAnimatedWebp(result)) {
+            logger.warn('videoToSticker: first pass not animated, fallback');
+            const tmpOut2 = path.join(paths.temp, `vout2_${id}.webp`);
             try {
-              if (!fs.existsSync(tmpOut)) throw new Error('output file not created');
-              const result = fs.readFileSync(tmpOut);
-              logger.info({ size: result.length }, 'videoToSticker: conversion succeeded');
-
-              // Probe output to confirm animation (multiple frames)
-              try {
-                const probeInfo = await new Promise((res, rej) => ffmpeg.ffprobe(tmpOut, (e, i) => e ? rej(e) : res(i)));
-                logger.info({ probe: probeInfo }, 'videoToSticker: ffprobe result');
-                const vstream = (probeInfo.streams || []).find(s => s.codec_type === 'video');
-                const nbFrames = vstream && (vstream.nb_frames || vstream.nb_read_frames);
-                let framesEstimate = nbFrames;
-                if (!framesEstimate && vstream && vstream.duration && vstream.avg_frame_rate) {
-                  const parts = vstream.avg_frame_rate.split('/');
-                  const fps = Number(parts[0]) / Number(parts[1] || 1) || 0;
-                  framesEstimate = Math.round(fps * Number(vstream.duration));
-                }
-                logger.info({ nbFrames: framesEstimate }, 'videoToSticker: frame estimate');
-
-                if (framesEstimate && Number(framesEstimate) <= 1) {
-                  logger.warn('videoToSticker: output appears single-frame, attempting fallback re-encode');
-                  const tmpOut2 = tmpOut + '.alt';
-                  await new Promise((res, rej) => {
-                    ffmpeg(tmpIn)
-                      .outputOptions([
-                        '-y',
-                        '-vcodec', 'libwebp',
-                        '-filter_complex', 'fps=15,scale=512:512:force_original_aspect_ratio=decrease',
-                        '-lossless', '0',
-                        '-qscale', '75',
-                        '-compression_level', '6',
-                        '-pix_fmt', 'yuva420p',
-                        '-loop', '0',
-                        '-preset', 'default',
-                        '-an',
-                        '-vsync', '0',
-                        '-t', '00:00:07'
-                      ])
-                      .toFormat('webp')
-                      .save(tmpOut2)
-                      .on('end', () => res())
-                      .on('error', (e) => rej(e));
-                  });
-                  if (fs.existsSync(tmpOut2)) {
-                    const alt = fs.readFileSync(tmpOut2);
-                    logger.info({ size: alt.length }, 'videoToSticker: fallback conversion succeeded');
-                    try { fs.unlinkSync(tmpIn); } catch {}
-                    try { fs.unlinkSync(tmpOut); } catch {}
-                    try { fs.unlinkSync(tmpOut2); } catch {}
-                    resolve(alt);
-                    return;
-                  }
-                }
-              } catch (probeException) {
-                logger.warn({ err: probeException && probeException.message }, 'videoToSticker: probe exception');
+              await run(tmpOut2, 'fps=12,scale=512:512:force_original_aspect_ratio=decrease:flags=lanczos');
+              if (fs.existsSync(tmpOut2)) {
+                const alt = fs.readFileSync(tmpOut2);
+                if (isAnimatedWebp(alt) || alt.length > result.length) result = alt;
+                try { fs.unlinkSync(tmpOut2); } catch (_) {}
               }
-
-              // Nettoyage (default path)
-              try { fs.unlinkSync(tmpIn); } catch {}
-              try { fs.unlinkSync(tmpOut); } catch {}
-              resolve(result);
-            } catch (err) {
-              logger.error({ err: err.message, tmpOut }, 'videoToSticker: failed to read output file');
-              try { fs.unlinkSync(tmpIn); } catch {}
-              try { fs.unlinkSync(tmpOut); } catch {}
-              resolve(null);
+            } catch (e) {
+              logger.warn({ err: e.message }, 'videoToSticker: fallback failed');
             }
-          })();
-        })
-        .on('error', (err) => {
-          if (watchdog) clearTimeout(watchdog);
-          if (resolved) return;
-          resolved = true;
+          }
 
-          // ffmpeg non dispo ou erreur → on nettoie et retourne null
-          logger.error({ 
-            err: err && err.message, 
-            stderr: err && err.stderr,
-            code: err && err.code
-          }, 'videoToSticker: ffmpeg error');
-          try { fs.unlinkSync(tmpIn); } catch {}
-          try { fs.unlinkSync(tmpOut); } catch {}
-          resolve(null);
-        });
+          logger.info({
+            size: result.length,
+            animated: isAnimatedWebp(result),
+          }, 'videoToSticker: done');
+
+          try { fs.unlinkSync(tmpIn); } catch (_) {}
+          try { fs.unlinkSync(tmpOut); } catch (_) {}
+          done(result);
+        } catch (err) {
+          logger.error({ err: err && err.message, stderr: err && err.stderr }, 'videoToSticker: error');
+          try { fs.unlinkSync(tmpIn); } catch (_) {}
+          try { fs.unlinkSync(tmpOut); } catch (_) {}
+          done(null);
+        }
+      })();
     } catch (err) {
-      if (watchdog) clearTimeout(watchdog);
-      if (resolved) return;
-      resolved = true;
-
-      logger.error({ err: err && err.message, stack: err && err.stack }, 'videoToSticker: initialization failed');
-      resolve(null);
+      logger.error({ err: err && err.message }, 'videoToSticker: init failed');
+      done(null);
     }
   });
 }
+
+/**
+ * Sticker WebP animé → MP4 (pour unstick vidéo).
+ */
+async function stickerToVideo(buffer) {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const done = (v) => { if (!resolved) { resolved = true; resolve(v); } };
+
+    try {
+      const ffmpeg = require('fluent-ffmpeg');
+      configureFfmpeg(ffmpeg);
+
+      const id = Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      const tmpIn  = path.join(paths.temp, `sin_${id}.webp`);
+      const tmpOut = path.join(paths.temp, `sout_${id}.mp4`);
+
+      fs.writeFileSync(tmpIn, buffer);
+
+      ffmpeg(tmpIn)
+        .outputOptions([
+          '-y',
+          '-c:v', 'libx264',
+          '-pix_fmt', 'yuv420p',
+          '-movflags', '+faststart',
+          '-an',
+          '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+        ])
+        .toFormat('mp4')
+        .on('end', () => {
+          try {
+            const out = fs.readFileSync(tmpOut);
+            try { fs.unlinkSync(tmpIn); } catch (_) {}
+            try { fs.unlinkSync(tmpOut); } catch (_) {}
+            done(out);
+          } catch (e) {
+            done(null);
+          }
+        })
+        .on('error', (err) => {
+          logger.error({ err: err && err.message }, 'stickerToVideo: error');
+          try { fs.unlinkSync(tmpIn); } catch (_) {}
+          try { fs.unlinkSync(tmpOut); } catch (_) {}
+          done(null);
+        })
+        .save(tmpOut);
+    } catch (err) {
+      logger.error({ err: err && err.message }, 'stickerToVideo: init failed');
+      done(null);
+    }
+  });
+}
+
 
 /**
  * Télécharge le buffer d'un message média.
@@ -258,9 +254,23 @@ function getMediaType(msg) {
   const target = viewOnce || msgObj;
 
   for (const t of types) {
-    if (target[t]) return { type: t.replace('Message', ''), raw: target[t] };
+    iif (target[t]) {
+      const raw = target[t];
+      return {
+        type: t.replace('Message', ''),
+        raw,
+        isAnimated: !!(raw.isAnimated || raw.gifPlayback),
+      };
+    }
   }
   return null;
 }
 
-module.exports = { imageToSticker, videoToSticker, downloadMedia, getMediaType };
+module.exports = {
+  imageToSticker,
+  videoToSticker,
+  stickerToVideo,
+  isAnimatedWebp,
+  downloadMedia,
+  getMediaType,
+};
