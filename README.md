@@ -1,27 +1,27 @@
-<div align="center">
+<div align="center"> 
 
 <img src="src/utils/LogoBot.JPEG" width="180" style="border-radius:50%"/>
 
 # 🤖 PRAD\$BOT — WhatsApp Bot
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blueviolet?style=for-the-badge&logo=github)](https://github.com/PradSonkeng/Prad.Bot)
-[![Node.js](https://img.shields.io/badge/Node.js-18+-green?style=for-the-badge&logo=node.js)](https://nodejs.org)
-[![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-brightgreen?style=for-the-badge&logo=mongodb)](https://mongodb.com/atlas)
-[![Baileys](https://img.shields.io/badge/Baileys-6.7.9-blue?style=for-the-badge)](https://github.com/whiskeysockets/baileys)
-[![License](https://img.shields.io/badge/license-MIT-orange?style=for-the-badge)](LICENSE)
-[![Status](https://img.shields.io/badge/status-En%20ligne%20🟢-success?style=for-the-badge)](https://wa.me/672039320?text=||menu)
+[![Version](https://img.shields.io/badge/version-2.0.0-blueviolet?style=flatge&logo=github)](https://github.com/PradSonkeng/Prad.Bot)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green?style=flat&logo=node.js)](https://nodejs.org)
+[![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-brightgreen?style=flat&logo=mongodb)](https://mongodb.com/atlas)
+[![Baileys](https://img.shields.io/badge/Baileys-6.7.9-blue?flat)](https://github.com/whiskeysockets/baileys)
+[![License](https://img.shields.io/badge/license-MIT-orange?style=flat)](LICENSE)
+[![Status](https://img.shields.io/badge/status-En%20ligne%20🟢-success?style=flat)](https://uncomfortable-christiana-pard-tech-58d941b2.koyeb.app/user)
 
-> **Bot WhatsApp modulaire haute performance** — Gestion de groupes, médias, stickers et bien plus.
+> **Bot WhatsApp multi-sessions** — Gestion de groupes, médias, stickers et bien plus.
 
 ---
 
 ### 👤 Auteur
 
-[![GitHub](https://img.shields.io/badge/GitHub-PradSonkeng-181717?style=for-the-badge&logo=github)](https://github.com/PradSonkeng)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-PradSonkeng-0077B5?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/prad-sonkeng-002161382?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app)
-[![YouTube](https://img.shields.io/badge/YouTube-PradSONKENG-FF0000?style=for-the-badge&logo=youtube)](https://www.youtube.com/@PradSONKENG?s=21)
-[![Twitter/X](https://img.shields.io/badge/Twitter%2FX-PradPrime-000000?style=for-the-badge&logo=x)](https://x.com/PradPrime)
-[![WhatsApp](https://img.shields.io/badge/WhatsApp-Me%20Contacter-25D366?style=for-the-badge&logo=whatsapp)](https://wa.me/658130830)
+[![GitHub](https://img.shields.io/badge/GitHub-PradSonkeng-181717?style=flat&logo=github)](https://github.com/PradSonkeng)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-PradSonkeng-0077B5?style=flat&logo=linkedin)](https://www.linkedin.com/in/prad-sonkeng-002161382/)
+[![YouTube](https://img.shields.io/badge/YouTube-PradSONKENG-FF0000?style=flat&logo=youtube)](https://youtube.com/@pradsonkeng?si=dXDUUBdJyGyQVUHk)
+[![Twitter/X](https://img.shields.io/badge/Twitter%2FX-PradPrime-000000?style=flat&logo=x)](https://x.com/PradPrime)
+[![WhatsApp](https://img.shields.io/badge/WhatsApp-Me%20Contacter-25D366?style=flat&logo=whatsapp)](https://wa.me/658130830)
 
 </div>
 
@@ -31,11 +31,11 @@
 
 - [✨ Fonctionnalités](#-fonctionnalités)
 - [⚙️ Stack technique](#️-stack-technique)
-- [📦 Installation](#-installation)
-- [🔧 Configuration](#-configuration)
-- [🚀 Démarrage](#-démarrage)
+- [👥 Mode multi-sessions (users)](#-mode-multi-sessions-users)
+- [🔐 Panneau administrateur](#-panneau-administrateur)
+- [📊 Statistiques](#-statistiques)
+- [🌐 Pages web](#-pages-web)
 - [📋 Commandes](#-commandes)
-- [☁️ Déploiement Koyeb](#️-déploiement-koyeb)
 - [🗂️ Structure du projet](#️-structure-du-projet)
 - [➕ Ajouter une commande](#-ajouter-une-commande)
 - [👤 À propos de l'auteur](#-à-propos-de-lauteur)
@@ -45,15 +45,16 @@
 ## ✨ Fonctionnalités
 
 ```
-🛡️  Gestion complète des groupes (admins, membres, permissions)
-🎬  Conversion photo/vidéo en stickers WebP
-📸  Extraction de médias en vue unique haute résolution
-👤  Photo de profil en haute résolution
-⚡  Traitement concurrent — 15 messages simultanés
-🔒  Anti-flood intégré (rate limiting par utilisateur)
-💾  Session WhatsApp persistante dans MongoDB
-🔄  Reconnexion automatique en cas de coupure
-📊  Journalisation complète des actions
+👥  Multi-sessions — 1 session bot principale + N sessions utilisateurs
+🔗  Connexion user via page /user (QR ou code pairing)
+🆕  Boutons « Nouvelle connexion » et « Déconnecter » côté user
+🔐  Panneau admin protégé (/admin) — activer, désactiver, supprimer
+📊  Stats par session (commandes, dernière commande, top commandes)
+🛡️  Gestion complète des groupes (admins, kick, tagall, etc.)
+🎬  Stickers, extraction vue unique, photo de profil HD
+💾  Sessions persistantes dans MongoDB Atlas
+🔄  Restauration automatique des sessions actives au démarrage
+🔒  Anti-flood (rate limiting) + nettoyage des sessions inactives
 ```
 
 ---
@@ -73,88 +74,92 @@
 
 ---
 
-## 📦 Installation
+## 👥 Mode multi-sessions (users)
 
-### Prérequis
+Le bot gère **deux types de sessions** :
 
-```bash
-node --version   # v18.0.0 minimum
-npm --version    # v8.0.0 minimum
-git --version    # toute version
-```
+| Type | Rôle |
+|------|------|
+| **main** | Numéro officiel du bot (page `/`) |
+| **user** | WhatsApp personnel d'un utilisateur (page `/user`) |
 
-### Cloner le projet
+### Comment un utilisateur connecte son WhatsApp
 
-```bash
-git clone https://github.com/PradSonkeng/Prad.Bot.git
-cd Prad.Bot
-npm install
-```
+1. Ouvrir l'URL publique **`/user`**
+2. Scanner le **QR code** ou utiliser le **code pairing** (numéro + code)
+3. Une fois connecté : message « WhatsApp connecté ! »
+4. Les chats restent normaux ; les commandes du bot sont disponibles sur ce compte
 
----
+### Boutons côté user (après connexion)
 
-## 🔧 Configuration
+| Bouton | Effet |
+|--------|--------|
+| **Nouvelle connexion** | Efface la session du navigateur et crée une **nouvelle** session (QR / pairing frais). L'ancienne reste côté serveur jusqu'à suppression admin. |
+| **Déconnecter cette session** | Supprime la session sur le serveur **et** le stockage local du navigateur, puis propose une nouvelle connexion. |
 
-```bash
-# Copier le fichier d'exemple
-cp .env.example .env
+### Persistance navigateur
 
-# Ouvrir et remplir vos valeurs
-nano .env
-```
-
-### Variables d'environnement
-
-```env
-# ─── MongoDB Atlas ─────────────────────────────────────
-MONGO_URI=mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/whatsapp_bot
-
-# ─── Bot ───────────────────────────────────────────────
-BOT_NAME=PRAD$BOT
-BOT_VERSION=2.0.0
-BOT_PREFIX=||
-OWNER_NUMBER=VOTRE_NUMERO_SANS_PLUS
-
-# ─── Performances ──────────────────────────────────────
-RATE_LIMIT_MAX=10
-RATE_LIMIT_WINDOW=60000
-
-# ─── Serveur ───────────────────────────────────────────
-PORT=3000
-```
+- Le `sessionId` est stocké en **localStorage** (`prad_user_session`)
+- Même appareil / même navigateur → reprise de la même session au refresh
+- **Autre appareil** → nouvelle session possible (localStorage isolé)
 
 ---
 
-## 🚀 Démarrage
+## 🔐 Panneau administrateur
 
-```bash
-# Développement (avec rechargement automatique)
-npm run dev
+URL : **`/admin`**
 
-# Production
-npm start
+Protégé par le secret **`ADMIN_SECRET`** (variable d'environnement).
 
-# Production avec PM2
-npm run pm2:start
-npm run pm2:logs
-npm run pm2:stop
-```
+### Capacités
 
-### Scanner le QR code
+- Liste de **toutes** les sessions (main + users)
+- Statut live : connecté / offline / qr / pairing / conflict…
+- **Activer / Désactiver** une session user (ferme le socket, conserve les credentials)
+- **Supprimer** définitivement une session (creds inclus)
+- Filtres : Tous / Connectés / Actifs / Inactifs + recherche
+- Cartes de stats globales en haut de page
+- Rafraîchissement auto toutes les 15 s
 
-```
-1. Lancez le bot → npm run dev
-2. Ouvrez http://localhost:3000
-3. Scannez le QR avec WhatsApp du numéro bot
-   → WhatsApp → ⋮ → Appareils liés → Lier un appareil
-4. ✅ Bot connecté et opérationnel !
-```
+La session **main** ne peut pas être désactivée ni supprimée depuis le panneau.
 
-> 💡 La session est sauvegardée dans MongoDB — vous ne rescannez qu'une seule fois.
+---
 
+## 📊 Statistiques
+
+Pour chaque session **user**, à chaque commande exécutée :
+
+| Champ | Description |
+|-------|-------------|
+| `commandCount` | Nombre total de commandes |
+| `lastCommand` | Nom de la dernière commande |
+| `lastCommandAt` | Horodatage de la dernière commande |
+| `commandsByName` | Compteur par commande (ex. `menu×12`, `stick×5`) |
+
+Affichées dans le tableau admin (total + top 3 des commandes).
+
+---
+
+## 🌐 Pages web
+
+| Page | URL | Accès |
+|------|-----|--------|
+| Session bot (main) | `/` | Public |
+| Connexion utilisateur | `/user` | Public |
+| Panneau admin | `/admin` | Secret `ADMIN_SECRET` |
+| Santé (health check) | `/health` | Public (JSON) |
+
+API admin (header `x-admin-secret` ou query `key`) :
+
+- `GET  /admin/api/sessions` — liste détaillée
+- `GET  /admin/api/stats` — agrégats
+- `POST /admin/api/session/active` — `{ sessionId, active }`
+- `POST /admin/api/session/remove` — `{ sessionId }`
 ---
 
 ## 📋 Commandes
+
+Préfixe par défaut : **`||`**. Voici quelque commande du bot WhatsApp
 
 ### 🌐 Générales — Disponibles partout
 
@@ -203,30 +208,6 @@ npm run pm2:stop
 
 ---
 
-## ☁️ Déploiement Koyeb
-
-```bash
-# 1. Pousser sur GitHub
-git add .
-git commit -m "feat: déploiement production"
-git push origin main
-
-# 2. Sur koyeb.com
-→ Create App → GitHub → votre repo
-→ Runtime : Node.js
-→ Start cmd : node src/index.js
-→ Port : 3000
-→ Ajouter les variables d'environnement
-→ Deploy ✅
-```
-
-```
-URL publique : https://votre-app.koyeb.app
-QR code      : https://votre-app.koyeb.app  (à scanner une fois)
-```
-
----
-
 ## 🗂️ Structure du projet
 
 ```
@@ -243,6 +224,8 @@ Prad.bot/
 │   │       ├── Group.js          ← Modèle groupe
 │   │       ├── Session.js        ← Session WhatsApp persistante
 │   │       └── User.js           ← Modèle utilisateur
+│   ├── 📁 sessions/
+│   │   └── SessionManager.js    ← multi-sessions, active/inactive, détail admin
 │   ├── 📁 handlers/
 │   │   ├── messageHandler.js     ← Routeur de messages
 │   │   └── eventHandler.js       ← Événements WhatsApp
@@ -286,7 +269,7 @@ Prad.bot/
 
 ## ➕ Ajouter une commande
 
-C'est la grande force de l'architecture modulaire — **créer un seul fichier suffit**.
+Créer un fichier dans le bon dossier suffit :
 
 ```js
 // src/commands/general/macommande.js
@@ -329,11 +312,6 @@ module.exports = {
 ╚══════════════════════════════════════════╝
 ```
 
-[![GitHub](https://img.shields.io/badge/GitHub-Voir%20mes%20projets-181717?style=for-the-badge&logo=github)](https://github.com/PradSonkeng)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Me%20contacter-0077B5?style=for-the-badge&logo=linkedin)](https://linkedin.com/in/https://www.linkedin.com/in/prad-sonkeng-002161382?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app)
-[![YouTube](https://img.shields.io/badge/YouTube-Ma%20chaîne-FF0000?style=for-the-badge&logo=youtube)](https://www.youtube.com/@PradSONKENG)
-[![Twitter/X](https://img.shields.io/badge/Twitter%2FX-Me%20suivre-000000?style=for-the-badge&logo=x)](https://x.com/PradPrime?s=21)
-
 </div>
 
 ---
@@ -351,8 +329,8 @@ MIT License — Libre d'utilisation, modification et distribution.
 
 ⭐ **Si ce projet vous a aidé, laissez une étoile sur GitHub !** ⭐
 
-[![Star](https://img.shields.io/github/stars/VOTRE_GITHUB/whatsapp-bot?style=for-the-badge&logo=github&color=yellow)](https://github.com/PradSonkeng/Prad.Bot)
+[![Star](https://img.shields.io/github/stars/PradSonkeng/Prad.Bot?style=flat&logo=github&color=yellow)](https://github.com/PradSonkeng/Prad.Bot)
 
-*Fait avec ❤️ par PradSonkeng*
+*Fait par PradSonkeng*
 
 </div>
