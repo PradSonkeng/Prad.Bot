@@ -34,6 +34,11 @@ function startWebServer() {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+  
+  // Logo du bot
+  app.get('/logo', function (req, res) {
+    res.sendFile(path.join(__dirname, 'utils', 'LogoBot.JPEG'));
+  });
 
   // ── Page publiques ────────────────────────────────────────
   app.get('/', function (req, res) {
@@ -257,6 +262,7 @@ function pageHtml(mode) {
     '*{margin:0;padding:0;box-sizing:border-box}' +
     'body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0a;font-family:system-ui,sans-serif;color:#fff}' +
     '.card{background:#111;border:1px solid #222;border-radius:24px;padding:36px 28px;text-align:center;max-width:440px;width:92%}' +
+    '.logo{width:90px;height:90px;border-radius:50%;object-fit:cover;margin-bottom:16px;border:3px solid #25d366;box-shadow:0 0 20px rgba(37,211,102,.25)}' +
     'h1{font-size:20px;font-weight:700;color:#25d366;margin-bottom:4px}' +
     '.sub{font-size:13px;color:#666;margin-bottom:20px;line-height:1.5}' +
     '.box{display:none;flex-direction:column;align-items:center;gap:14px;width:100%}' +
@@ -279,6 +285,7 @@ function pageHtml(mode) {
     'a.link{color:#25d366;font-size:13px}' +
     '.err{color:#f87171;font-size:12px;background:#1f1212;padding:10px;border-radius:10px;width:100%;word-break:break-word}' +
     '</style></head><body><div class="card">' +
+    '<img class="logo" src="/logo" alt="Logo"/>' +
     '<h1>' + bot.name + '</h1>' +
     '<p class="sub">' + sub + '</p>' +
     '<div id="waiting" class="box" style="display:flex"><div class="spinner"></div>' +
@@ -402,6 +409,8 @@ function adminPageHtml() {
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{min-height:100vh;background:#0a0a0a;font-family:system-ui,-apple-system,sans-serif;color:#e5e5e5}
+.logo{width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:14px;border:3px solid #25d366;box-shadow:0 0 18px rgba(37,211,102,.3)}
+.header-logo{width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid #25d366;vertical-align:middle;margin-right:10px}
 .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .login-card{background:#111;border:1px solid #222;border-radius:20px;padding:36px 28px;max-width:380px;width:100%;text-align:center}
 .login-card h1{color:#25d366;font-size:22px;margin-bottom:6px}
@@ -451,6 +460,7 @@ tr:hover td{background:#0f0f0f}
 
 <div id="login" class="login-wrap">
   <div class="login-card">
+    <img class="logo" src="/logo" alt="Logo"/>
     <h1>${bot.name}</h1>
     <p>Panneau d'administration — accès restreint</p>
     <input type="password" id="secret-input" placeholder="ADMIN_SECRET" autocomplete="off"/>
@@ -462,7 +472,7 @@ tr:hover td{background:#0f0f0f}
 <div id="dashboard" class="hidden">
   <div class="header">
     <div>
-      <h1>${bot.name} Admin</h1>
+      <h1><img class="header-logo" src="/logo" alt=""/>${bot.name} Admin</h1>
       <div class="meta" id="last-refresh">—</div>
     </div>
     <div style="display:flex;gap:8px">

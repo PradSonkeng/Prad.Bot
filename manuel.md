@@ -1,12 +1,12 @@
 # 📖 Manuel d'utilisation — PRAD$BOT
 
-> Guide complet pour les utilisateurs du bot WhatsApp
+> Guide complet pour les utilisateurs et les connexions multi-sessions
 
 ---
 
 ## 🚀 Comment démarrer
 
-### Étape 1 — Contacter le bot
+### Option A — Contacter le bot (session principale)
 
 Cliquez sur ce lien depuis votre téléphone :
 
@@ -14,16 +14,60 @@ Cliquez sur ce lien depuis votre téléphone :
 https://wa.me/672039320?text=||menu
 ```
 
-Ou enregistrez le numéro du bot dans vos contacts et envoyez-lui un message.
-
-### Étape 2 — Premier message
-
-Envoyez simplement :
+Ou enregistrez le numéro du bot dans vos contacts et envoyez :
 ```
 ||menu
 ```
 
-Le bot vous répondra avec son logo et toutes ses informations.
+### Option B — Connecter **votre** WhatsApp (mode user)
+
+1. Ouvrez la page **connexion utilisateur** de l'application (URL `/user` fournie par l'admin).
+2. Choisissez **QR Code** ou **Code Pairing**.
+3. Scannez / saisissez le code dans WhatsApp → **Appareils liés**.
+4. Quand « WhatsApp connecté ! » s'affiche, votre compte peut utiliser les commandes du bot.
+
+Vos conversations restent normales. Le bot s'ajoute comme « appareil lié ».
+
+---
+
+## 👥 Mode multi-sessions (utilisateur)
+
+Plusieurs personnes peuvent connecter **leur propre** numéro via `/user`, chacune avec une session indépendante.
+
+### Boutons sur la page user (après connexion)
+
+| Bouton | À quoi ça sert |
+|--------|----------------|
+| **Nouvelle connexion** | Démarre une **nouvelle** session sur cet appareil (nouveau QR). L'ancienne session peut rester active côté serveur jusqu'à suppression par l'admin. |
+| **Déconnecter cette session** | Supprime **cette** session sur le serveur et sur le navigateur, puis propose une nouvelle connexion. |
+
+### Comportement par appareil
+
+- **Même téléphone / même navigateur** : en rafraîchissant la page, la session déjà liée est reprise (stockage local du navigateur).
+- **Autre appareil** : le navigateur n'a pas la session → une **nouvelle** connexion est proposée.
+
+Si la page affiche toujours « connecté » alors que vous voulez un autre numéro : utilisez **Nouvelle connexion** ou **Déconnecter cette session**.
+
+---
+
+## 📋 Liste complète des commandes
+
+Préfixe : **`||`**
+
+---
+
+### 🌐 COMMANDES GÉNÉRALES
+
+Disponibles en privé et en groupe (session bot ou session user).
+
+---
+
+#### `||menu`
+
+**Aliases :** `||start` `||accueil`
+
+Présentation du bot (logo, version, infos).
+
 
 ---
 
@@ -294,6 +338,6 @@ Pour toute question ou problème :
 <div align="center">
 
 *Manuel d'utilisation — PRAD\$BOT v2.0.0*
-*Fait avec ❤️ par PradSonkeng*
+*Fait par PradSonkeng*
 
 </div>

@@ -28,12 +28,16 @@ module.exports = {
         • Nom    : Prad
         • GitHub : https://github.com/PradSonkeng/Prad.Bot
         • Contact : wa.me/237658130830
-
+        
 
       📌 *Préfixe des commandes :* \`${bot.prefix}\`
 
         Tape *${bot.prefix}help* pour voir toutes les commandes.
         _Propulsé par PradBot v${bot.version}_
+        
+        
+      📖 *Plus de détaille sur les commandes* : https://github.com/PradSonkeng/Prad.Bot/blob/main/Manuel.md
+
     `.trim();
 
     // Chemin vers le logo
