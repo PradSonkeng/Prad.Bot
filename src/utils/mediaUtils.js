@@ -254,7 +254,7 @@ function getMediaType(msg) {
   const target = viewOnce || msgObj;
 
   for (const t of types) {
-    iif (target[t]) {
+    if (target[t]) {
       const raw = target[t];
       return {
         type: t.replace('Message', ''),
