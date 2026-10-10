@@ -1,6 +1,6 @@
 'use strict';
 
-const { downloadMedia, getMediaType, imageToSticker, videoToSticker, isAnimatedWebp }
+const { downloadMedia, getMediaType, getTargetMediaMsg, imageToSticker, videoToSticker, isAnimatedWebp }
                                      = require('../../utils/mediaUtils');
 const { sendText, sendSticker }      = require('../../utils/messageUtils');
 
@@ -11,24 +11,22 @@ module.exports = {
   category: 'media',
 
   async execute({ sock, jid, msg }) {
-    const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-    const targetMsg = quoted ? { message: quoted, key: msg.key } : msg;
-
+    const targetMsg = getTargetMediaMsg(msg);
     const mediaInfo = getMediaType(targetMsg);
+
     if (!mediaInfo || !['image', 'video'].includes(mediaInfo.type)) {
       return sendText(sock, jid, '⚠️ Répondez à une *image* ou *vidéo* pour créer un sticker.');
     }
 
     await sendText(sock, jid, '⏳ Création du sticker...');
 
-    const buffer = await downloadMedia(sock, targetMsg);
+    try {
+      const buffer = await downloadMedia(sock, msg);
 
-    if (mediaInfo.type === 'video') {
-      sticker = await videoToSticker(buffer);
-      if (!sticker) {
-        return sendText(sock, jid,
-          '❌ Conversion vidéo impossible.\n'
-        );
+      if (mediaInfo.type === 'video') {
+        const sticker = await videoToSticker(buffer);
+        if (!sticker) {
+         return sendText(sock, jid, '❌ Conversion vidéo impossible.\n' );
       }
       const animated = isAnimatedWebp(sticker);
       // isAnimated aide WhatsApp/Baileys à traiter le WebP multi-frames
@@ -36,5 +34,15 @@ module.exports = {
     }
     const sticker = await imageToSticker(buffer);
     await sendSticker(sock, jid, sticker, { isAnimated: false });
+    } catch (err) {
+      const errMsg = err && (err.message || String(err));
+      if (/empty media key|Cannot derive from empty media key/i.test(errMsg || '')) {
+        return sendText(sock, jid,
+          '❌ Impossible de télécharger le média.\n' +
+          'Renvoyez l\'image/vidéo puis réessayez.'
+        );
+      }
+      throw err;
+    }
   },
 };

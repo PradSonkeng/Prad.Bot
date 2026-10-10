@@ -227,15 +227,103 @@ async function stickerToVideo(buffer) {
 }
 
 
+
+/**
+ * Construit un objet message correct pour un média cité (quoted).
+ * Nécessaire pour que downloadMediaMessage / updateMediaMessage
+ * aient la bonne clé (stanzaId) et puissent re-uploader si besoin.
+ */
+function getTargetMediaMsg(msg) {
+  const ctx =
+    msg.message?.extendedTextMessage?.contextInfo ||
+    msg.message?.imageMessage?.contextInfo ||
+    msg.message?.videoMessage?.contextInfo ||
+    msg.message?.stickerMessage?.contextInfo ||
+    msg.message?.documentMessage?.contextInfo ||
+    msg.message?.audioMessage?.contextInfo ||
+    null;
+
+  const quoted = ctx?.quotedMessage;
+  if (!quoted || !ctx.stanzaId) {
+    return msg;
+  }
+
+  return {
+    key: {
+      remoteJid: msg.key.remoteJid,
+      id: ctx.stanzaId,
+      fromMe: false,
+      participant: ctx.participant || undefined,
+    },
+    message: quoted,
+  };
+}
+
+/**
+ * Normalise mediaKey (parfois sérialisé en objet plain au lieu de Buffer/Uint8Array).
+ */
+function normalizeMediaKey(mediaNode) {
+  if (!mediaNode || !mediaNode.mediaKey) return mediaNode;
+  const mk = mediaNode.mediaKey;
+  if (Buffer.isBuffer(mk) || mk instanceof Uint8Array) return mediaNode;
+  if (typeof mk === 'object' && mk !== null) {
+    try {
+      const values = Object.values(mk);
+      if (values.length && values.every((v) => typeof v === 'number')) {
+        mediaNode.mediaKey = Uint8Array.from(values);
+      }
+    } catch (_) {}
+  }
+  return mediaNode;
+}
+
+
 /**
  * Télécharge le buffer d'un message média.
+ * Gère les messages cités, normalise mediaKey, et tente un re-upload si la clé est absente.
  */
 async function downloadMedia(sock, msg) {
   const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-  return downloadMediaMessage(msg, 'buffer', {}, {
-    logger:           require('./logger'),
-    reuploadRequest:  sock.updateMediaMessage,
-  });
+  const target = getTargetMediaMsg(msg);
+
+  // Normalise mediaKey sur le nœud média (stickerMessage, imageMessage, …)
+  const msgObj = target.message || {};
+  const viewOnce =
+    msgObj.viewOnceMessage?.message ||
+    msgObj.viewOnceMessageV2?.message ||
+    msgObj.viewOnceMessageV2Extension?.message;
+  const content = viewOnce || msgObj;
+  for (const t of ['stickerMessage', 'imageMessage', 'videoMessage', 'audioMessage', 'documentMessage']) {
+    if (content[t]) {
+      normalizeMediaKey(content[t]);
+      break;
+    }
+  }
+
+  const opts = {
+    logger: require('./logger'),
+    reuploadRequest: sock.updateMediaMessage,
+  };
+
+  try {
+    return await downloadMediaMessage(target, 'buffer', {}, opts);
+  } catch (err) {
+    const msgErr = err && (err.message || String(err));
+    // Cas fréquent : mediaKey vide → tenter un updateMediaMessage puis retry
+    if (msgErr && /empty media key|Cannot derive from empty media key/i.test(msgErr)) {
+      logger.warn('downloadMedia: empty media key, trying updateMediaMessage then retry');
+      try {
+        if (typeof sock.updateMediaMessage === 'function') {
+          await sock.updateMediaMessage(target);
+        }
+        return await downloadMediaMessage(target, 'buffer', {}, opts);
+      } catch (retryErr) {
+        logger.error({ err: retryErr && retryErr.message }, 'downloadMedia: retry after updateMediaMessage failed');
+        throw retryErr;
+      }
+    }
+    throw err;
+  }
 }
 
 /**
@@ -273,4 +361,5 @@ module.exports = {
   isAnimatedWebp,
   downloadMedia,
   getMediaType,
+  getTargetMediaMsg,
 };
