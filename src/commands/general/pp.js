@@ -23,7 +23,7 @@ module.exports = {
     try {
       const url = await sock.profilePictureUrl(target, 'image'); // haute résolution
       const res = await require('axios').get(url, { responseType: 'arraybuffer' });
-      await sendImage(sock, jid, Buffer.from(res.data), `📸 Photo de profil de @${target.split('@')[0]}`);
+      await sendImage(sock, jid, Buffer.from(res.data), `📸 Photo de profil`);
     } catch {
       await sendText(sock, jid, '❌ Photo de profil introuvable ou privée.');
     }

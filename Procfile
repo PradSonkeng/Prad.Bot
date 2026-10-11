@@ -1,1 +1,1 @@
-web: node src/index.js
+web: bash scripts/install.sh
