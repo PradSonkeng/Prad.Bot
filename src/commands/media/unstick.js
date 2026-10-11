@@ -15,14 +15,6 @@ module.exports = {
       return sendText(sock, jid, '⚠️ Répondez à un *sticker* pour le convertir en image.');
     }
 
-    // Vérifie que le mediaKey est présent (évite l'erreur "empty media key")
-    if (!mediaInfo.raw?.mediaKey) {
-      return sendText(sock, jid,
-        '❌ Impossible de télécharger ce sticker.\n' +
-        'Réessayez en répondant directement au sticker, ou renvoyez le sticker.'
-      );
-    }
-
     await sendText(sock, jid, '⏳ Conversion en cours...');
 
     try {
